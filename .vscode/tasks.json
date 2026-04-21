@@ -1,0 +1,31 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Start MCP Server",
+            "type": "shell",
+            "command": "/usr/bin/bash",
+            "args": [
+                "-lc",
+                "source \"$HOME/.nvm/nvm.sh\" && npx -y @penpot/mcp@beta"
+            ],
+            "windows": {
+                "command": "cmd.exe",
+                "args": [
+                    "/d",
+                    "/c",
+                    "npx -y @penpot/mcp@beta"
+                ]
+            },
+            "isBackground": true,
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        }
+    ]
+}
