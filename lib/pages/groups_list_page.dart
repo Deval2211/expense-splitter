@@ -8,7 +8,7 @@ import 'group_details_page.dart';
 import 'login_page.dart';
 
 class GroupsListPage extends StatefulWidget {
-  const GroupsListPage({Key? key}) : super(key: key);
+  const GroupsListPage({super.key});
 
   @override
   State<GroupsListPage> createState() => _GroupsListPageState();

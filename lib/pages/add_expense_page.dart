@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/expense.dart';
 import '../models/group.dart';
 import '../models/settlement.dart';
 import '../database/database.dart';
@@ -13,10 +14,8 @@ class MemberConsumption {
   final TextEditingController controller;
   double? amount;
 
-  MemberConsumption({
-    required this.userId,
-    required this.userName,
-  }) : controller = TextEditingController();
+  MemberConsumption({required this.userId, required this.userName})
+    : controller = TextEditingController();
 
   void dispose() {
     controller.dispose();
@@ -26,10 +25,7 @@ class MemberConsumption {
 class AddExpensePage extends StatefulWidget {
   final GroupBalanceView groupBalanceView;
 
-  const AddExpensePage({
-    Key? key,
-    required this.groupBalanceView,
-  }) : super(key: key);
+  const AddExpensePage({super.key, required this.groupBalanceView});
 
   @override
   State<AddExpensePage> createState() => _AddExpensePageState();
@@ -39,18 +35,20 @@ class _AddExpensePageState extends State<AddExpensePage> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _noteController = TextEditingController();
 
   late GroupRepository _groupRepository;
   List<GroupMember> _members = [];
   String? _selectedPayerId;
-  
+  String _selectedCategory = 'other';
+
   // For equal split
   Set<String> _selectedParticipants = {};
-  
+
   // For unequal split
   SplitType _splitType = SplitType.equal;
   List<MemberConsumption> _memberConsumptions = [];
-  
+
   bool _isLoading = true;
   bool _isSaving = false;
   String? _errorMessage;
@@ -67,6 +65,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
   void dispose() {
     _amountController.dispose();
     _descriptionController.dispose();
+    _noteController.dispose();
     for (var consumption in _memberConsumptions) {
       consumption.dispose();
     }
@@ -92,13 +91,14 @@ class _AddExpensePageState extends State<AddExpensePage> {
         }
         // Default: all members selected as participants for equal split
         _selectedParticipants = _members.map((m) => m.userId).toSet();
-        
+
         // Initialize consumption controllers for unequal split
-        _memberConsumptions = _members.map((m) => MemberConsumption(
-          userId: m.userId,
-          userName: m.userName,
-        )).toList();
-        
+        _memberConsumptions = _members
+            .map(
+              (m) => MemberConsumption(userId: m.userId, userName: m.userName),
+            )
+            .toList();
+
         _isLoading = false;
       });
     } catch (e) {
@@ -187,7 +187,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
     if (emptyCount > 0 && enteredSum < totalAmount) {
       final remaining = totalAmount - enteredSum;
       final sharePerEmpty = remaining / emptyCount;
-      
+
       for (var consumption in _memberConsumptions) {
         consumption.amount ??= sharePerEmpty;
       }
@@ -227,7 +227,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
       if (!_validateUnequalSplit()) {
         return;
       }
-      
+
       // Check if at least one person has consumption
       final hasConsumption = _memberConsumptions.any(
         (c) => c.amount != null && c.amount! > 0,
@@ -250,7 +250,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
     try {
       final amount = double.parse(_amountController.text.trim());
       final description = _descriptionController.text.trim();
+      final note = _noteController.text.trim();
       final expenseDescription = description.isEmpty ? 'Expense' : description;
+      final expenseNote = note.isEmpty ? null : note;
 
       if (_splitType == SplitType.equal) {
         // Equal split - single expense with selected participants
@@ -260,6 +262,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
           amount: amount,
           paidByUserId: _selectedPayerId!,
           participantIds: _selectedParticipants.toList(),
+          category: _selectedCategory,
+          note: expenseNote,
+          splitType: 'equal',
         );
       } else {
         // Unequal split - create individual expenses for each person's consumption
@@ -272,6 +277,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
               amount: consumption.amount!,
               paidByUserId: _selectedPayerId!,
               participantIds: [consumption.userId], // Only this person consumed
+              category: _selectedCategory,
+              note: expenseNote,
+              splitType: 'unequal',
             );
           }
         }
@@ -322,73 +330,67 @@ class _AddExpensePageState extends State<AddExpensePage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: Colors.red[300],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _loadGroupMembers,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Retry'),
-                        ),
-                      ],
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+                    const SizedBox(height: 16),
+                    Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyLarge,
                     ),
-                  ),
-                )
-              : SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Section 1: Expense Details Card
-                          _buildExpenseDetailsCard(),
-                          const SizedBox(height: 24),
-
-                          // Section 2: Split Type Selector
-                          _buildSplitTypeSelector(),
-                          const SizedBox(height: 24),
-
-                          // Section 3: Participants/Consumption based on split type
-                          if (_splitType == SplitType.equal)
-                            _buildEqualSplitSection()
-                          else
-                            _buildUnequalSplitSection(),
-                          const SizedBox(height: 32),
-
-                          // Save Button
-                          _buildSaveButton(),
-                          const SizedBox(height: 16),
-                        ],
-                      ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _loadGroupMembers,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
                     ),
+                  ],
+                ),
+              ),
+            )
+          : SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Section 1: Expense Details Card
+                      _buildExpenseDetailsCard(),
+                      const SizedBox(height: 24),
+
+                      // Section 2: Split Type Selector
+                      _buildSplitTypeSelector(),
+                      const SizedBox(height: 24),
+
+                      // Section 3: Participants/Consumption based on split type
+                      if (_splitType == SplitType.equal)
+                        _buildEqualSplitSection()
+                      else
+                        _buildUnequalSplitSection(),
+                      const SizedBox(height: 32),
+
+                      // Save Button
+                      _buildSaveButton(),
+                      const SizedBox(height: 16),
+                    ],
                   ),
                 ),
+              ),
+            ),
     );
   }
 
   Widget _buildExpenseDetailsCard() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -404,9 +406,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
                 const SizedBox(width: 12),
                 Text(
                   'Expense Details',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -428,7 +430,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
                   vertical: 12,
                 ),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               validator: (value) {
                 if (value == null || value.trim().isEmpty) {
                   return 'Amount is required';
@@ -460,6 +464,60 @@ class _AddExpensePageState extends State<AddExpensePage> {
               ),
               textCapitalization: TextCapitalization.sentences,
               enabled: !_isSaving,
+            ),
+            const SizedBox(height: 16),
+
+            DropdownButtonFormField<String>(
+              initialValue: _selectedCategory,
+              decoration: InputDecoration(
+                labelText: 'Category',
+                prefixIcon: const Icon(Icons.category),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+              items: expenseCategories.entries
+                  .map(
+                    (entry) => DropdownMenuItem<String>(
+                      value: entry.key,
+                      child: Text(entry.value),
+                    ),
+                  )
+                  .toList(),
+              onChanged: _isSaving
+                  ? null
+                  : (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      setState(() {
+                        _selectedCategory = value;
+                      });
+                    },
+            ),
+            const SizedBox(height: 16),
+
+            TextFormField(
+              controller: _noteController,
+              decoration: InputDecoration(
+                labelText: 'Note (Optional)',
+                hintText: 'Any extra details for this expense',
+                prefixIcon: const Icon(Icons.sticky_note_2_outlined),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+              textCapitalization: TextCapitalization.sentences,
+              enabled: !_isSaving,
+              maxLines: 2,
             ),
             const SizedBox(height: 16),
 
@@ -506,9 +564,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
   Widget _buildSplitTypeSelector() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -524,14 +580,14 @@ class _AddExpensePageState extends State<AddExpensePage> {
                 const SizedBox(width: 12),
                 Text(
                   'Split Type',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            
+
             // Split type options
             Row(
               children: [
@@ -571,7 +627,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
                           const SizedBox(height: 8),
                           Text(
                             'Equal Split',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(
                                   fontWeight: FontWeight.bold,
                                   color: _splitType == SplitType.equal
                                       ? Colors.white
@@ -581,7 +638,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
                           const SizedBox(height: 4),
                           Text(
                             'Divide equally',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
                                   color: _splitType == SplitType.equal
                                       ? Colors.white70
                                       : Colors.grey[600],
@@ -630,7 +688,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
                           const SizedBox(height: 8),
                           Text(
                             'Unequal Split',
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            style: Theme.of(context).textTheme.titleSmall
+                                ?.copyWith(
                                   fontWeight: FontWeight.bold,
                                   color: _splitType == SplitType.unequal
                                       ? Colors.white
@@ -640,7 +699,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
                           const SizedBox(height: 4),
                           Text(
                             'By consumption',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
                                   color: _splitType == SplitType.unequal
                                       ? Colors.white70
                                       : Colors.grey[600],
@@ -663,9 +723,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
   Widget _buildEqualSplitSection() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -685,17 +743,17 @@ class _AddExpensePageState extends State<AddExpensePage> {
                     Text(
                       'Participants',
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
                 Text(
                   '${_selectedParticipants.length}/${_members.length}',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: Colors.grey[600],
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
@@ -733,13 +791,17 @@ class _AddExpensePageState extends State<AddExpensePage> {
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: InkWell(
-                  onTap: _isSaving ? null : () => _toggleParticipant(member.userId),
+                  onTap: _isSaving
+                      ? null
+                      : () => _toggleParticipant(member.userId),
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.1)
+                          ? Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.1)
                           : Colors.grey[100],
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
@@ -776,7 +838,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
                         Expanded(
                           child: Text(
                             member.userName,
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(
                                   fontWeight: isSelected
                                       ? FontWeight.w600
                                       : FontWeight.normal,
@@ -815,8 +878,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
                       child: Text(
                         _buildSplitInfoText(),
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.blue[900],
-                            ),
+                          color: Colors.blue[900],
+                        ),
                       ),
                     ),
                   ],
@@ -839,9 +902,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
   Widget _buildUnequalSplitSection() {
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -857,18 +918,18 @@ class _AddExpensePageState extends State<AddExpensePage> {
                 const SizedBox(width: 12),
                 Text(
                   'Individual Consumption',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
             const SizedBox(height: 8),
             Text(
               'Enter amount consumed by each person',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.grey[600],
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
             ),
             const SizedBox(height: 16),
             const Divider(),
@@ -882,7 +943,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
                   children: [
                     CircleAvatar(
                       radius: 20,
-                      backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.2),
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.2),
                       child: Text(
                         consumption.userName[0].toUpperCase(),
                         style: TextStyle(
@@ -898,9 +961,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
                         children: [
                           Text(
                             consumption.userName,
-                            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                  fontWeight: FontWeight.w500,
-                                ),
+                            style: Theme.of(context).textTheme.bodyLarge
+                                ?.copyWith(fontWeight: FontWeight.w500),
                           ),
                         ],
                       ),
@@ -922,10 +984,14 @@ class _AddExpensePageState extends State<AddExpensePage> {
                           ),
                           isDense: true,
                         ),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         enabled: !_isSaving,
                         onChanged: (value) {
-                          setState(() {}); // Refresh to update validation messages
+                          setState(
+                            () {},
+                          ); // Refresh to update validation messages
                         },
                       ),
                     ),
@@ -960,9 +1026,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
             Expanded(
               child: Text(
                 'Enter total amount first to see consumption summary',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.orange[900],
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: Colors.orange[900]),
               ),
             ),
           ],
@@ -998,14 +1064,16 @@ class _AddExpensePageState extends State<AddExpensePage> {
       borderColor = Colors.red[200]!;
       textColor = Colors.red[900]!;
       icon = Icons.error_outline;
-      message = 'Entered: ₹${enteredSum.toStringAsFixed(2)} | Exceeds total by ₹${(enteredSum - totalAmount).toStringAsFixed(2)}';
+      message =
+          'Entered: ₹${enteredSum.toStringAsFixed(2)} | Exceeds total by ₹${(enteredSum - totalAmount).toStringAsFixed(2)}';
     } else if (emptyCount == 0 && (enteredSum - totalAmount).abs() > 0.01) {
       // All filled but doesn't match
       bgColor = Colors.orange[50]!;
       borderColor = Colors.orange[200]!;
       textColor = Colors.orange[900]!;
       icon = Icons.warning_amber;
-      message = 'Entered: ₹${enteredSum.toStringAsFixed(2)} | Missing: ₹${remaining.toStringAsFixed(2)}';
+      message =
+          'Entered: ₹${enteredSum.toStringAsFixed(2)} | Missing: ₹${remaining.toStringAsFixed(2)}';
     } else if (emptyCount > 0 && remaining > 0) {
       // Will auto-distribute
       final autoShare = remaining / emptyCount;
@@ -1013,7 +1081,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
       borderColor = Colors.blue[200]!;
       textColor = Colors.blue[900]!;
       icon = Icons.auto_fix_high;
-      message = 'Entered: ₹${enteredSum.toStringAsFixed(2)} | Remaining ₹${remaining.toStringAsFixed(2)} will be split among $emptyCount member${emptyCount > 1 ? 's' : ''} (₹${autoShare.toStringAsFixed(2)} each)';
+      message =
+          'Entered: ₹${enteredSum.toStringAsFixed(2)} | Remaining ₹${remaining.toStringAsFixed(2)} will be split among $emptyCount member${emptyCount > 1 ? 's' : ''} (₹${autoShare.toStringAsFixed(2)} each)';
     } else {
       // Perfect match
       bgColor = Colors.green[50]!;
@@ -1039,9 +1108,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
             child: Text(
               message,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: textColor,
-                    fontWeight: FontWeight.w500,
-                  ),
+                color: textColor,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
         ],
@@ -1068,9 +1137,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
         label: Text(
           _isSaving ? 'Saving...' : 'Save Expense',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
+            color: Colors.white,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: Theme.of(context).colorScheme.primary,

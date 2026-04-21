@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../models/expense.dart';
 import '../models/group.dart';
 import '../models/settlement.dart';
 import '../database/database.dart';
@@ -8,10 +9,7 @@ import 'add_expense_page.dart';
 class GroupDetailsPage extends StatefulWidget {
   final GroupBalanceView groupBalanceView;
 
-  const GroupDetailsPage({
-    Key? key,
-    required this.groupBalanceView,
-  }) : super(key: key);
+  const GroupDetailsPage({super.key, required this.groupBalanceView});
 
   @override
   State<GroupDetailsPage> createState() => _GroupDetailsPageState();
@@ -22,6 +20,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   List<GroupMember> _members = [];
   List<Settlement> _pendingSettlements = [];
   List<Settlement> _completedSettlements = [];
+  GroupExpenseStats? _stats;
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -55,10 +54,16 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         widget.groupBalanceView.group.id,
       );
 
+      // Load stats summary for this group
+      final stats = await _groupRepository.getGroupExpenseStats(
+        widget.groupBalanceView.group.id,
+      );
+
       setState(() {
         _members = members;
         _pendingSettlements = pending;
         _completedSettlements = completed;
+        _stats = stats;
         _isLoading = false;
       });
     } catch (e) {
@@ -72,7 +77,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   Future<void> _markAsPaid(Settlement settlement) async {
     try {
       await _groupRepository.markSettlementAsPaid(settlement);
-      
+
       // Show success message
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -118,72 +123,73 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 64,
-                          color: Colors.red[300],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          _errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        ElevatedButton.icon(
-                          onPressed: _loadGroupData,
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Retry'),
-                        ),
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+                    const SizedBox(height: 16),
+                    Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _loadGroupData,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadGroupData,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Section 1: Event Info Card
+                      _buildEventInfoCard(),
+                      const SizedBox(height: 24),
+
+                      if (_stats?.hasData ?? false) ...[
+                        _buildStatsCard(),
+                        const SizedBox(height: 24),
                       ],
-                    ),
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadGroupData,
-                  child: SingleChildScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Section 1: Event Info Card
-                          _buildEventInfoCard(),
-                          const SizedBox(height: 24),
 
-                          // Section 2: Pending Settlements
-                          _buildSectionHeader(
-                            'Pending Settlements',
-                            _pendingSettlements.length,
-                          ),
-                          const SizedBox(height: 12),
-                          _pendingSettlements.isEmpty
-                              ? _buildAllSettledCard()
-                              : _buildPendingSettlementsList(),
-                          const SizedBox(height: 24),
-
-                          // Section 3: Completed Settlements
-                          if (_completedSettlements.isNotEmpty) ...[
-                            const Divider(height: 32),
-                            _buildSectionHeader(
-                              'Completed Settlements',
-                              _completedSettlements.length,
-                            ),
-                            const SizedBox(height: 12),
-                            _buildCompletedSettlementsList(),
-                          ],
-                        ],
+                      // Section 2: Pending Settlements
+                      _buildSectionHeader(
+                        'Pending Settlements',
+                        _pendingSettlements.length,
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      _pendingSettlements.isEmpty
+                          ? _buildAllSettledCard()
+                          : _buildPendingSettlementsList(),
+                      const SizedBox(height: 24),
+
+                      // Section 3: Completed Settlements
+                      if (_completedSettlements.isNotEmpty) ...[
+                        const Divider(height: 32),
+                        _buildSectionHeader(
+                          'Completed Settlements',
+                          _completedSettlements.length,
+                        ),
+                        const SizedBox(height: 12),
+                        _buildCompletedSettlementsList(),
+                      ],
+                    ],
                   ),
                 ),
+              ),
+            ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _navigateToAddExpense,
         icon: const Icon(Icons.add),
@@ -197,9 +203,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   Future<void> _navigateToAddExpense() async {
     final result = await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => AddExpensePage(
-          groupBalanceView: widget.groupBalanceView,
-        ),
+        builder: (context) =>
+            AddExpensePage(groupBalanceView: widget.groupBalanceView),
       ),
     );
 
@@ -218,9 +223,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
 
     return Card(
       elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -239,8 +242,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                   child: Text(
                     widget.groupBalanceView.group.name,
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -283,50 +286,52 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
               Text(
                 'Payment Details',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey[700],
-                    ),
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
               ),
               const SizedBox(height: 12),
-              ..._members.map((member) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 16,
-                          backgroundColor: member.amountPaid > 0
-                              ? Colors.green[100]
-                              : Colors.grey[200],
-                          child: Text(
-                            member.userName[0].toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: member.amountPaid > 0
-                                  ? Colors.green[900]
-                                  : Colors.grey[700],
-                            ),
+              ..._members.map(
+                (member) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 16,
+                        backgroundColor: member.amountPaid > 0
+                            ? Colors.green[100]
+                            : Colors.grey[200],
+                        child: Text(
+                          member.userName[0].toUpperCase(),
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: member.amountPaid > 0
+                                ? Colors.green[900]
+                                : Colors.grey[700],
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            member.userName,
-                            style: Theme.of(context).textTheme.bodyMedium,
-                          ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          member.userName,
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
-                        Text(
-                          'Paid ₹${member.amountPaid.toStringAsFixed(2)}',
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: member.amountPaid > 0
-                                    ? Colors.green[700]
-                                    : Colors.grey[600],
-                              ),
+                      ),
+                      Text(
+                        'Paid ₹${member.amountPaid.toStringAsFixed(2)}',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: member.amountPaid > 0
+                              ? Colors.green[700]
+                              : Colors.grey[600],
                         ),
-                      ],
-                    ),
-                  )),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ],
         ),
@@ -342,19 +347,176 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         Expanded(
           child: Text(
             label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey[700],
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
           ),
         ),
         Text(
           value,
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
         ),
       ],
+    );
+  }
+
+  Widget _buildStatsCard() {
+    final stats = _stats;
+    if (stats == null || !stats.hasData) {
+      return const SizedBox.shrink();
+    }
+
+    final maxCategorySpend = stats.categoryTotals.values.fold<double>(
+      0.0,
+      (maxValue, value) => value > maxValue ? value : maxValue,
+    );
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.analytics_outlined,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Expense Insights',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _buildInfoRow(
+              'Expenses Logged',
+              '${stats.expenseCount}',
+              Icons.receipt_long,
+              Colors.indigo[700]!,
+            ),
+            const SizedBox(height: 12),
+            _buildInfoRow(
+              'Average Expense',
+              '₹${stats.averageExpense.toStringAsFixed(2)}',
+              Icons.trending_up,
+              Colors.teal[700]!,
+            ),
+            if (stats.categoryTotals.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 12),
+              Text(
+                'Category Breakdown',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...stats.categoryTotals.entries.map((entry) {
+                final label = expenseCategories[entry.key] ?? entry.key;
+                final progress = maxCategorySpend <= 0
+                    ? 0.0
+                    : entry.value / maxCategorySpend;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              label,
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                          Text(
+                            '₹${entry.value.toStringAsFixed(2)}',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          minHeight: 8,
+                          value: progress,
+                          backgroundColor: Colors.grey[200],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+            if (stats.memberStats.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              const Divider(),
+              const SizedBox(height: 12),
+              Text(
+                'Member Net Position',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[700],
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...stats.memberStats.map((memberStat) {
+                final net = memberStat.netBalance;
+                final amount = net.abs();
+                final color = net > 0
+                    ? Colors.green[700]!
+                    : net < 0
+                    ? Colors.red[700]!
+                    : Colors.grey[700]!;
+                final prefix = net > 0
+                    ? '+'
+                    : net < 0
+                    ? '-'
+                    : '';
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          memberStat.userName,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      Text(
+                        '$prefix₹${amount.toStringAsFixed(2)}',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -363,9 +525,9 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
       children: [
         Text(
           title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(width: 8),
         Container(
@@ -399,25 +561,21 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            Icon(
-              Icons.celebration,
-              size: 48,
-              color: Colors.green[600],
-            ),
+            Icon(Icons.celebration, size: 48, color: Colors.green[600]),
             const SizedBox(height: 12),
             Text(
               'All Settled! 🎉',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green[900],
-                  ),
+                fontWeight: FontWeight.bold,
+                color: Colors.green[900],
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               'No pending payments',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.green[700],
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.green[700]),
             ),
           ],
         ),
@@ -480,7 +638,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                       ),
                       child: Text(
                         '₹${settlement.amount.toStringAsFixed(2)}',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
                               fontWeight: FontWeight.bold,
                               color: Colors.orange[900],
                             ),
@@ -528,11 +687,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                Icon(
-                  Icons.check_circle,
-                  color: Colors.green[600],
-                  size: 24,
-                ),
+                Icon(Icons.check_circle, color: Colors.green[600], size: 24),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -540,9 +695,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                     children: [
                       RichText(
                         text: TextSpan(
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                color: Colors.grey[600],
-                              ),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: Colors.grey[600]),
                           children: [
                             TextSpan(
                               text: settlement.fromUserName,
@@ -564,8 +718,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                       Text(
                         dateStr,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[500],
-                            ),
+                          color: Colors.grey[500],
+                        ),
                       ),
                     ],
                   ),
@@ -573,9 +727,9 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                 Text(
                   '₹${settlement.amount.toStringAsFixed(2)}',
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey[600],
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[600],
+                  ),
                 ),
               ],
             ),

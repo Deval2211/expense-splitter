@@ -35,16 +35,13 @@ class GroupRepository {
   ) async {
     final db = await _database.database;
 
-    await db.insert(
-      'groups',
-      {
-        'id': groupId,
-        'name': name,
-        'description': description,
-        'createdAt': DateTime.now().millisecondsSinceEpoch,
-        'createdBy': createdBy,
-      },
-    );
+    await db.insert('groups', {
+      'id': groupId,
+      'name': name,
+      'description': description,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'createdBy': createdBy,
+    });
 
     return groupId;
   }
@@ -72,14 +69,11 @@ class GroupRepository {
         });
 
         // 2. Ensure current user exists and add them as member
-        await txn.insert(
-          'group_members',
-          {
-            'id': const Uuid().v4(),
-            'groupId': groupId,
-            'userId': currentUserId,
-          },
-        );
+        await txn.insert('group_members', {
+          'id': const Uuid().v4(),
+          'groupId': groupId,
+          'userId': currentUserId,
+        });
 
         // 3. Process friends
         for (final friend in friends) {
@@ -191,8 +185,7 @@ class GroupRepository {
       'WHERE groupId = ? AND toUserId = ?',
       [groupId, userId],
     );
-    final settlementIn =
-        (settlementInResult.first['total'] as num).toDouble();
+    final settlementIn = (settlementInResult.first['total'] as num).toDouble();
 
     // Settlement out: payments made by user
     final settlementOutResult = await db.rawQuery(
@@ -200,8 +193,8 @@ class GroupRepository {
       'WHERE groupId = ? AND fromUserId = ?',
       [groupId, userId],
     );
-    final settlementOut =
-        (settlementOutResult.first['total'] as num).toDouble();
+    final settlementOut = (settlementOutResult.first['total'] as num)
+        .toDouble();
 
     // Formula: credit - debit - settlement_in + settlement_out
     final netBalance = credit - debit - settlementIn + settlementOut;
@@ -237,12 +230,7 @@ class GroupRepository {
 
       for (final group in groups) {
         final balance = await getUserNetBalanceForGroup(group.id, userId);
-        result.add(
-          GroupBalanceView(
-            group: group,
-            netBalance: balance,
-          ),
-        );
+        result.add(GroupBalanceView(group: group, netBalance: balance));
       }
 
       return result;
@@ -255,16 +243,14 @@ class GroupRepository {
   /// Add a member to a group
   Future<void> addMemberToGroup(String groupId, String userId) async {
     final db = await _database.database;
-    final memberId = '${groupId}_${userId}_${DateTime.now().millisecondsSinceEpoch}';
+    final memberId =
+        '${groupId}_${userId}_${DateTime.now().millisecondsSinceEpoch}';
 
-    await db.insert(
-      'group_members',
-      {
-        'id': memberId,
-        'groupId': groupId,
-        'userId': userId,
-      },
-    );
+    await db.insert('group_members', {
+      'id': memberId,
+      'groupId': groupId,
+      'userId': userId,
+    });
   }
 
   /// Get group members with their payment details
@@ -272,12 +258,15 @@ class GroupRepository {
     final db = await _database.database;
 
     // Get all members in the group
-    final membersResult = await db.rawQuery('''
+    final membersResult = await db.rawQuery(
+      '''
       SELECT DISTINCT u.id, u.name 
       FROM users u
       INNER JOIN group_members gm ON u.id = gm.userId
       WHERE gm.groupId = ?
-    ''', [groupId]);
+    ''',
+      [groupId],
+    );
 
     final List<GroupMember> members = [];
 
@@ -286,19 +275,20 @@ class GroupRepository {
       final userName = memberRow['name'] as String;
 
       // Get total amount paid by this user in this group
-      final expensesResult = await db.rawQuery('''
+      final expensesResult = await db.rawQuery(
+        '''
         SELECT COALESCE(SUM(amount), 0) as total
         FROM expenses
         WHERE groupId = ? AND paidByUserId = ?
-      ''', [groupId, userId]);
+      ''',
+        [groupId, userId],
+      );
 
       final amountPaid = (expensesResult.first['total'] as num).toDouble();
 
-      members.add(GroupMember(
-        userId: userId,
-        userName: userName,
-        amountPaid: amountPaid,
-      ));
+      members.add(
+        GroupMember(userId: userId, userName: userName, amountPaid: amountPaid),
+      );
     }
 
     return members;
@@ -308,7 +298,8 @@ class GroupRepository {
   Future<List<Settlement>> getGroupSettlements(String groupId) async {
     final db = await _database.database;
 
-    final result = await db.rawQuery('''
+    final result = await db.rawQuery(
+      '''
       SELECT s.*, 
              u1.name as fromName,
              u2.name as toName
@@ -317,26 +308,37 @@ class GroupRepository {
       INNER JOIN users u2 ON s.toUserId = u2.id
       WHERE s.groupId = ?
       ORDER BY s.createdAt DESC
-    ''', [groupId]);
+    ''',
+      [groupId],
+    );
 
-    return result.map((map) => Settlement.fromMap(
-      map,
-      map['fromName'] as String,
-      map['toName'] as String,
-    )).toList();
+    return result
+        .map(
+          (map) => Settlement.fromMap(
+            map,
+            map['fromName'] as String,
+            map['toName'] as String,
+          ),
+        )
+        .toList();
   }
 
   /// Calculate pending settlements for a group
   /// Uses the "debt simplification" algorithm with smart merge logic
   Future<List<Settlement>> calculatePendingSettlements(String groupId) async {
+    const epsilon = 0.01;
+
     try {
       // Get all group members
-      final membersResult = await (await _database.database).rawQuery('''
+      final membersResult = await (await _database.database).rawQuery(
+        '''
         SELECT DISTINCT u.id, u.name 
         FROM users u
         INNER JOIN group_members gm ON u.id = gm.userId
         WHERE gm.groupId = ?
-      ''', [groupId]);
+      ''',
+        [groupId],
+      );
 
       if (membersResult.isEmpty) {
         return [];
@@ -364,12 +366,12 @@ class GroupRepository {
         for (final participantId in expense.participantIds) {
           if (participantId == expense.paidByUserId) {
             // Payer paid their own share, net effect is they paid for others
-            balances[participantId] = 
-                (balances[participantId] ?? 0) + 
+            balances[participantId] =
+                (balances[participantId] ?? 0) +
                 (expense.amount - sharePerParticipant);
           } else {
             // Other participants owe their share to the payer
-            balances[participantId] = 
+            balances[participantId] =
                 (balances[participantId] ?? 0) - sharePerParticipant;
           }
         }
@@ -381,9 +383,9 @@ class GroupRepository {
         // When someone pays a settlement:
         // - The payer (fromUser) has paid, so their net balance increases
         // - The receiver (toUser) has received, so their net balance decreases
-        balances[settlement.fromUserId] = 
+        balances[settlement.fromUserId] =
             (balances[settlement.fromUserId] ?? 0) + settlement.amount;
-        balances[settlement.toUserId] = 
+        balances[settlement.toUserId] =
             (balances[settlement.toUserId] ?? 0) - settlement.amount;
       }
 
@@ -393,12 +395,18 @@ class GroupRepository {
 
       balances.forEach((userId, balance) {
         // Only consider significant amounts (ignore very small differences due to rounding)
-        if (balance > 0.01) {
+        if (balance > epsilon) {
           creditors.add(MapEntry(userId, balance));
-        } else if (balance < -0.01) {
-          debtors.add(MapEntry(userId, -balance)); // Convert to positive for easier calculation
+        } else if (balance < -epsilon) {
+          debtors.add(
+            MapEntry(userId, -balance),
+          ); // Convert to positive for easier calculation
         }
       });
+
+      // Deterministic ordering keeps settlement suggestions stable across refreshes.
+      creditors.sort((a, b) => b.value.compareTo(a.value));
+      debtors.sort((a, b) => b.value.compareTo(a.value));
 
       // Generate minimal settlements using greedy algorithm
       final List<Settlement> pendingSettlements = [];
@@ -410,19 +418,23 @@ class GroupRepository {
         final creditor = creditors[creditorIdx];
         final debtor = debtors[debtorIdx];
 
-        final amountToSettle = creditor.value < debtor.value 
-            ? creditor.value 
+        final amountToSettle = creditor.value < debtor.value
+            ? creditor.value
             : debtor.value;
 
         // Create settlement: debtor pays creditor
-        pendingSettlements.add(Settlement.calculated(
-          fromUserId: debtor.key,
-          fromUserName: userNames[debtor.key]!,
-          toUserId: creditor.key,
-          toUserName: userNames[creditor.key]!,
-          amount: amountToSettle,
-          groupId: groupId,
-        ));
+        if (amountToSettle > epsilon) {
+          pendingSettlements.add(
+            Settlement.calculated(
+              fromUserId: debtor.key,
+              fromUserName: userNames[debtor.key]!,
+              toUserId: creditor.key,
+              toUserName: userNames[creditor.key]!,
+              amount: amountToSettle,
+              groupId: groupId,
+            ),
+          );
+        }
 
         // Update remaining amounts
         creditors[creditorIdx] = MapEntry(
@@ -435,10 +447,10 @@ class GroupRepository {
         );
 
         // Move to next creditor/debtor if current one is settled
-        if (creditors[creditorIdx].value < 0.01) {
+        if (creditors[creditorIdx].value < epsilon) {
           creditorIdx++;
         }
-        if (debtors[debtorIdx].value < 0.01) {
+        if (debtors[debtorIdx].value < epsilon) {
           debtorIdx++;
         }
       }
@@ -478,10 +490,26 @@ class GroupRepository {
     required double amount,
     required String paidByUserId,
     required List<String> participantIds,
+    String category = 'other',
+    String? note,
+    String splitType = 'equal',
   }) async {
     final db = await _database.database;
     final expenseId = const Uuid().v4();
     final now = DateTime.now().millisecondsSinceEpoch;
+    final cleanedParticipantIds = participantIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (amount <= 0) {
+      throw ArgumentError('Expense amount must be greater than zero');
+    }
+
+    if (cleanedParticipantIds.isEmpty) {
+      throw ArgumentError('At least one participant is required');
+    }
 
     try {
       await db.transaction((txn) async {
@@ -492,11 +520,14 @@ class GroupRepository {
           'paidByUserId': paidByUserId,
           'amount': amount,
           'description': description,
+          'category': category,
+          'note': note,
+          'splitType': splitType,
           'createdAt': now,
         });
 
         // 2. Insert all participants
-        for (final participantId in participantIds) {
+        for (final participantId in cleanedParticipantIds) {
           await txn.insert('expense_participants', {
             'expenseId': expenseId,
             'userId': participantId,
@@ -539,12 +570,15 @@ class GroupRepository {
           : 'Unknown';
 
       // Get participants
-      final participantsResult = await db.rawQuery('''
+      final participantsResult = await db.rawQuery(
+        '''
         SELECT u.id, u.name
         FROM users u
         INNER JOIN expense_participants ep ON u.id = ep.userId
         WHERE ep.expenseId = ?
-      ''', [expenseId]);
+      ''',
+        [expenseId],
+      );
 
       final participantIds = participantsResult
           .map((row) => row['id'] as String)
@@ -553,14 +587,99 @@ class GroupRepository {
           .map((row) => row['name'] as String)
           .toList();
 
-      expenses.add(Expense.fromMap(
-        expenseMap,
-        payerName,
-        participantIds,
-        participantNames,
-      ));
+      expenses.add(
+        Expense.fromMap(
+          expenseMap,
+          payerName,
+          participantIds,
+          participantNames,
+        ),
+      );
     }
 
     return expenses;
+  }
+
+  /// Aggregate total spend by category for a group.
+  Future<Map<String, double>> getGroupCategoryTotals(String groupId) async {
+    final db = await _database.database;
+
+    final result = await db.rawQuery(
+      '''
+      SELECT COALESCE(category, 'other') AS category,
+             COALESCE(SUM(amount), 0) AS total
+      FROM expenses
+      WHERE groupId = ?
+      GROUP BY COALESCE(category, 'other')
+      ORDER BY total DESC
+    ''',
+      [groupId],
+    );
+
+    final categoryTotals = <String, double>{};
+    for (final row in result) {
+      final category = (row['category'] as String?) ?? 'other';
+      categoryTotals[category] = (row['total'] as num).toDouble();
+    }
+
+    return categoryTotals;
+  }
+
+  /// Aggregate member-level paid/owed values for a group.
+  Future<List<MemberExpenseStats>> getGroupMemberExpenseStats(
+    String groupId,
+  ) async {
+    final members = await getGroupMembersWithPayments(groupId);
+    final expenses = await getGroupExpenses(groupId);
+    final amountOwedByUser = <String, double>{};
+
+    for (final member in members) {
+      amountOwedByUser[member.userId] = 0.0;
+    }
+
+    for (final expense in expenses) {
+      if (expense.participantIds.isEmpty) {
+        continue;
+      }
+
+      final share = expense.sharePerParticipant;
+      for (final participantId in expense.participantIds) {
+        amountOwedByUser[participantId] =
+            (amountOwedByUser[participantId] ?? 0) + share;
+      }
+    }
+
+    final stats = members
+        .map(
+          (member) => MemberExpenseStats(
+            userId: member.userId,
+            userName: member.userName,
+            amountPaid: member.amountPaid,
+            amountOwed: amountOwedByUser[member.userId] ?? 0,
+          ),
+        )
+        .toList();
+
+    stats.sort((a, b) => b.netBalance.compareTo(a.netBalance));
+    return stats;
+  }
+
+  /// Build a compact stats view model used by the group details page.
+  Future<GroupExpenseStats> getGroupExpenseStats(String groupId) async {
+    final expenses = await getGroupExpenses(groupId);
+    final categoryTotals = await getGroupCategoryTotals(groupId);
+    final memberStats = await getGroupMemberExpenseStats(groupId);
+
+    final totalAmount = expenses.fold<double>(
+      0.0,
+      (sum, expense) => sum + expense.amount,
+    );
+
+    return GroupExpenseStats(
+      expenseCount: expenses.length,
+      totalAmount: totalAmount,
+      categoryTotals: categoryTotals,
+      memberStats: memberStats,
+    );
   }
 }

@@ -6,7 +6,7 @@ import '../repositories/user_repository.dart';
 import '../models/friend_input.dart';
 
 class CreateGroupPage extends StatefulWidget {
-  const CreateGroupPage({Key? key}) : super(key: key);
+  const CreateGroupPage({super.key});
 
   @override
   State<CreateGroupPage> createState() => _CreateGroupPageState();
@@ -21,7 +21,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
   late String _currentUserId;
   String? _currentUserName;
 
-  List<FriendInput> _friends = [];
+  final List<FriendInput> _friends = [];
   double _creatorAmountPaid = 0.0;
   bool _isLoading = false;
   String? _errorMessage;

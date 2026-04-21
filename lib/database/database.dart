@@ -26,7 +26,7 @@ class AppDatabase {
 
       return await openDatabase(
         path,
-        version: 3,
+        version: 4,
         onCreate: _createTables,
         onUpgrade: _onUpgrade,
         onOpen: (db) {
@@ -82,6 +82,9 @@ class AppDatabase {
         paidByUserId TEXT NOT NULL,
         amount REAL NOT NULL,
         description TEXT,
+        category TEXT NOT NULL DEFAULT 'other',
+        note TEXT,
+        splitType TEXT NOT NULL DEFAULT 'equal',
         createdAt INTEGER NOT NULL,
         FOREIGN KEY (groupId) REFERENCES groups(id),
         FOREIGN KEY (paidByUserId) REFERENCES users(id)
@@ -159,7 +162,23 @@ class AppDatabase {
           PRIMARY KEY (expenseId, userId)
         )
       ''');
-      debugPrint('Database upgraded to version 3: expense_participants table added');
+      debugPrint(
+        'Database upgraded to version 3: expense_participants table added',
+      );
+    }
+
+    if (oldVersion < 4) {
+      // Add richer expense metadata for stats and filtering.
+      await db.execute(
+        "ALTER TABLE expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'other'",
+      );
+      await db.execute('ALTER TABLE expenses ADD COLUMN note TEXT');
+      await db.execute(
+        "ALTER TABLE expenses ADD COLUMN splitType TEXT NOT NULL DEFAULT 'equal'",
+      );
+      debugPrint(
+        'Database upgraded to version 4: expense metadata columns added',
+      );
     }
   }
 
