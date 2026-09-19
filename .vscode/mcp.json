@@ -1,6 +1,6 @@
 {
 	"servers": {
-		"penpot": {
+		"my-mcp-server-76f179ca": {
 			"url": "http://localhost:4401/mcp",
 			"type": "http"
 		}
