@@ -18,10 +18,11 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# The .vscode folder contains launch configuration and tasks you configure in
-# VS Code which you may wish to be included in version control, so this line
-# is commented out by default.
-#.vscode/
+# Editor-specific settings
+# NOTE: .vscode/mcp.json, settings.json and tasks.json are already tracked, so
+# this rule does not untrack them. If you want them tracked, comment it out.
+.vscode/
+.zed/
 
 # Flutter/Dart/Pub related
 **/doc/api/
@@ -43,3 +44,65 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Widget Preview related
+.widget_preview/
+
+# --- Android Gradle build cache (regenerated every build) ---
+/android/.gradle/
+/android/captures/
+/android/.cxx/
+/android/local.properties
+/android/key.properties
+/android/**/*.keystore
+/android/**/*.jks
+/android/gradlew
+/android/gradlew.bat
+/android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java
+
+# --- iOS / macOS generated files ---
+# These are regenerated on every build and embed absolute machine-specific
+# paths (e.g. FLUTTER_ROOT=/home/deval/flutter), so they must not be tracked.
+**/Flutter/Generated.xcconfig
+**/Flutter/flutter_export_environment.sh
+**/Flutter/ephemeral/
+**/Flutter/Flutter.podspec
+**/Flutter/App.framework/
+**/Flutter/Flutter.framework/
+**/Flutter/flutter_assets/
+**/Flutter/app.flx
+**/Flutter/app.zip
+**/Pods/
+**/DerivedData/
+**/xcuserdata/
+**/.symlinks/
+**/.generated/
+**/.vagrant/
+**/*sync/
+ServiceDefinitions.json
+**/Runner/GeneratedPluginRegistrant.*
+**/*.mode1v3
+**/*.mode2v3
+**/*.moved-aside
+**/*.pbxuser
+**/*.perspectivev3
+.sconsign.dblite
+.tags*
+Icon?
+!default.mode1v3
+!default.mode2v3
+!default.pbxuser
+!default.perspectivev3
+
+# --- Windows / Linux Flutter generated files ---
+**/flutter/ephemeral/
+
+# Visual Studio build output and caches
+**/*.suo
+**/*.user
+**/*.userosscache
+**/*.sln.docstates
+**/x64/
+**/x86/
+**/*.[Cc]ache
+!**/*.[Cc]ache/

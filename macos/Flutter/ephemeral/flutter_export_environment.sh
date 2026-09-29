@@ -1,7 +1,8 @@
 #!/bin/sh
 # This is a generated file; do not edit or check into version control.
-export "FLUTTER_ROOT=/media/deval/253593fe-a28e-4075-a527-1fb34531eda9/Program/flutter"
-export "FLUTTER_APPLICATION_PATH=/media/deval/253593fe-a28e-4075-a527-1fb34531eda9/Projects/expense-splitter"
+export "FLUTTER_ROOT=/home/deval/flutter"
+export "FLUTTER_APPLICATION_PATH=/home/deval/Projects/expense-splitter"
+export "FLUTTER_FRAMEWORK_SWIFT_PACKAGE_PATH=/home/deval/Projects/expense-splitter/macos/Flutter/ephemeral/Packages/.packages/FlutterFramework"
 export "COCOAPODS_PARALLEL_CODE_SIGN=true"
 export "FLUTTER_BUILD_DIR=build"
 export "FLUTTER_BUILD_NAME=1.0.0"
