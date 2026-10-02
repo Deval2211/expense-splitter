@@ -3,9 +3,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database.dart';
 import '../repositories/group_repository.dart';
 import '../models/group.dart';
+import '../main.dart';
+import '../utils/currency.dart';
 import 'create_group_page.dart';
 import 'group_details_page.dart';
 import 'login_page.dart';
+import 'profile_page.dart';
 
 class GroupsListPage extends StatefulWidget {
   const GroupsListPage({super.key});
@@ -61,6 +64,65 @@ class _GroupsListPageState extends State<GroupsListPage> {
     });
   }
 
+  Future<void> _navigateToProfile() async {
+    await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => const ProfilePage(),
+      ),
+    );
+
+    // Refresh unconditionally: Profile can persist changes (e.g. currency)
+    // without popping true.
+    _refreshData();
+  }
+
+  void _showThemeDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Choose Theme'),
+          // RadioGroup owns groupValue/onChanged for the tiles below.
+          // The tiles must NOT set groupValue or onChanged themselves:
+          // those parameters were deprecated after Flutter v3.32.0.
+          content: RadioGroup<ThemeMode>(
+            groupValue: themeNotifier.value,
+            onChanged: (ThemeMode? value) {
+              if (value != null) {
+                updateThemeMode(value);
+                Navigator.pop(dialogContext);
+              }
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                RadioListTile<ThemeMode>(
+                  title: Text('System Default'),
+                  value: ThemeMode.system,
+                ),
+                RadioListTile<ThemeMode>(
+                  title: Text('Light'),
+                  value: ThemeMode.light,
+                ),
+                RadioListTile<ThemeMode>(
+                  title: Text('Dark'),
+                  value: ThemeMode.dark,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _navigateToCreateGroup() async {
     final result = await Navigator.push<bool>(
       context,
@@ -73,6 +135,68 @@ class _GroupsListPageState extends State<GroupsListPage> {
     if (result == true) {
       _refreshData();
     }
+  }
+
+  Future<void> _deleteGroup(String groupId) async {
+    try {
+      await _groupRepository.deleteGroup(groupId);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.white),
+                SizedBox(width: 8),
+                Text('✓ Event deleted successfully'),
+              ],
+            ),
+            backgroundColor: Colors.green[600],
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      _refreshData();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting event: ${e.toString()}'),
+            backgroundColor: Colors.red[600],
+          ),
+        );
+      }
+    }
+  }
+
+  void _showDeleteGroupDialog(Group group) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Event'),
+        content: Text(
+          'Are you sure you want to delete "${group.name}"?\n\nThis will permanently delete all expenses, settlements, and member records for this event. This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _deleteGroup(group.id);
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red[600],
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -91,16 +215,46 @@ class _GroupsListPageState extends State<GroupsListPage> {
         title: const Text('Events'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          PopupMenuButton(
+          PopupMenuButton<String>(
             onSelected: (value) {
-              if (value == 'logout') {
+              if (value == 'profile') {
+                _navigateToProfile();
+              } else if (value == 'theme') {
+                _showThemeDialog();
+              } else if (value == 'logout') {
                 _handleLogout();
               }
             },
             itemBuilder: (BuildContext context) => [
-              const PopupMenuItem(
+              const PopupMenuItem<String>(
+                value: 'profile',
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline, size: 20),
+                    SizedBox(width: 12),
+                    Text('Profile'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'theme',
+                child: Row(
+                  children: [
+                    Icon(Icons.brightness_6, size: 20),
+                    SizedBox(width: 12),
+                    Text('Theme'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
                 value: 'logout',
-                child: Text('Logout'),
+                child: Row(
+                  children: [
+                    Icon(Icons.logout, size: 20),
+                    SizedBox(width: 12),
+                    Text('Logout'),
+                  ],
+                ),
               ),
             ],
           ),
@@ -182,10 +336,10 @@ class _GroupsListPageState extends State<GroupsListPage> {
 
     if (isOwed) {
       cardColor = Colors.green.shade50;
-      balanceText = 'You are owed ₹${balance.toStringAsFixed(2)}';
+      balanceText = 'You are owed ${formatCurrency(balance)}';
     } else if (isNegative) {
       cardColor = Colors.red.shade50;
-      balanceText = 'You owe ₹${(-balance).toStringAsFixed(2)}';
+      balanceText = 'You owe ${formatCurrency(-balance)}';
     } else {
       cardColor = Colors.grey.shade100;
       balanceText = 'Settled up';
@@ -289,7 +443,7 @@ class _GroupsListPageState extends State<GroupsListPage> {
                   ),
             ),
             subtitle: Text(
-              groupBalance.balanceText,
+              groupBalance.balanceText(),
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: isOwed
                         ? Colors.green.shade700
@@ -303,15 +457,19 @@ class _GroupsListPageState extends State<GroupsListPage> {
               Icons.chevron_right,
               color: Colors.grey[400],
             ),
-            onTap: () {
-              Navigator.push(
+            onTap: () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) =>
                       GroupDetailsPage(groupBalanceView: groupBalance),
                 ),
               );
+
+              // Refresh so renames made in details are reflected here
+              _refreshData();
             },
+            onLongPress: () => _showDeleteGroupDialog(groupBalance.group),
           ),
         );
       },

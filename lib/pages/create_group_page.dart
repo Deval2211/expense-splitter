@@ -4,6 +4,7 @@ import '../database/database.dart';
 import '../repositories/group_repository.dart';
 import '../repositories/user_repository.dart';
 import '../models/friend_input.dart';
+import '../utils/currency.dart';
 
 class CreateGroupPage extends StatefulWidget {
   const CreateGroupPage({super.key});
@@ -99,10 +100,10 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: amountController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Amount Paid',
                   hintText: 'Enter amount paid by friend',
-                  prefixText: '₹ ',
+                  prefixText: '$currencySymbol ',
                 ),
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 validator: (value) {
@@ -168,10 +169,10 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
           key: formKey,
           child: TextFormField(
             controller: amountController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Amount Paid',
               hintText: 'Enter amount you paid',
-              prefixText: '₹ ',
+              prefixText: '$currencySymbol ',
             ),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             autofocus: true,
@@ -315,7 +316,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                           ),
                         ),
                         Text(
-                          'Total: ₹${(_creatorAmountPaid + _friends.fold(0.0, (sum, friend) => sum + friend.amountPaid)).toStringAsFixed(2)}',
+                          'Total: ${formatCurrency(_creatorAmountPaid + _friends.fold(0.0, (sum, friend) => sum + friend.amountPaid))}',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: Colors.green[700],
                                 fontWeight: FontWeight.w600,
@@ -354,7 +355,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                         const Text('You (Event creator)'),
                         const SizedBox(height: 4),
                         Text(
-                          'Paid: ₹${_creatorAmountPaid.toStringAsFixed(2)}',
+                          'Paid: ${formatCurrency(_creatorAmountPaid)}',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: _creatorAmountPaid > 0 
                                     ? Colors.green[700] 
@@ -420,7 +421,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                               ),
                             const SizedBox(height: 4),
                             Text(
-                              'Paid: ₹${friend.amountPaid.toStringAsFixed(2)}',
+                              'Paid: ${formatCurrency(friend.amountPaid)}',
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: friend.amountPaid > 0 
                                         ? Colors.green[700] 

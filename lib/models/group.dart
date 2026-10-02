@@ -1,3 +1,5 @@
+import '../utils/currency.dart';
+
 class Group {
   final String id;
   final String name;
@@ -43,11 +45,11 @@ class GroupBalanceView {
     required this.netBalance,
   });
 
-  String get balanceText {
+  String balanceText([String? symbol]) {
     if (netBalance > 0) {
-      return 'You are owed ₹${netBalance.toStringAsFixed(2)}';
+      return 'You are owed ${formatCurrency(netBalance, symbol: symbol)}';
     } else if (netBalance < 0) {
-      return 'You owe ₹${(-netBalance).toStringAsFixed(2)}';
+      return 'You owe ${formatCurrency(-netBalance, symbol: symbol)}';
     } else {
       return 'Settled up';
     }

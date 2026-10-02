@@ -138,6 +138,61 @@ class GroupRepository {
     }
   }
 
+  /// Delete a group and all associated records in cascading order (atomic transaction)
+  Future<void> deleteGroup(String groupId) async {
+    final db = await _database.database;
+
+    try {
+      await db.transaction((txn) async {
+        // 1. Delete settlements associated with this group
+        await txn.delete(
+          'settlements',
+          where: 'groupId = ?',
+          whereArgs: [groupId],
+        );
+
+        // 2. Delete expense participants for all expenses in this group
+        // Note: Must be deleted before expenses due to foreign key
+        await txn.delete(
+          'expense_participants',
+          where: 'expenseId IN (SELECT id FROM expenses WHERE groupId = ?)',
+          whereArgs: [groupId],
+        );
+
+        // 3. Delete expense splits for this group
+        await txn.delete(
+          'expense_splits',
+          where: 'groupId = ?',
+          whereArgs: [groupId],
+        );
+
+        // 4. Delete expenses for this group
+        await txn.delete(
+          'expenses',
+          where: 'groupId = ?',
+          whereArgs: [groupId],
+        );
+
+        // 5. Delete group members
+        await txn.delete(
+          'group_members',
+          where: 'groupId = ?',
+          whereArgs: [groupId],
+        );
+
+        // 6. Delete the group record itself
+        await txn.delete(
+          'groups',
+          where: 'id = ?',
+          whereArgs: [groupId],
+        );
+      });
+    } catch (e) {
+      debugPrint('Error deleting group: $e');
+      rethrow;
+    }
+  }
+
   /// Get a single group by ID
   Future<Group?> getGroupById(String groupId) async {
     final db = await _database.database;
@@ -251,6 +306,92 @@ class GroupRepository {
       'groupId': groupId,
       'userId': userId,
     });
+  }
+
+  /// Update the name of a group
+  Future<void> updateGroupName(String groupId, String newName) async {
+    final trimmedName = newName.trim();
+    if (trimmedName.isEmpty) {
+      throw ArgumentError('Group name cannot be empty');
+    }
+
+    final db = await _database.database;
+    await db.update(
+      'groups',
+      {'name': trimmedName},
+      where: 'id = ?',
+      whereArgs: [groupId],
+    );
+  }
+
+  /// Add a new member to an existing group, creating the user record if needed
+  Future<void> addNewMemberToGroup(
+    String groupId,
+    String name,
+    String? phone,
+  ) async {
+    final trimmedName = name.trim();
+    final trimmedPhone =
+        phone != null && phone.trim().isNotEmpty ? phone.trim() : null;
+
+    if (trimmedName.isEmpty) {
+      throw ArgumentError('Member name cannot be empty');
+    }
+
+    final db = await _database.database;
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    try {
+      await db.transaction((txn) async {
+        // 1. Check if user already exists
+        final existingUsers = await txn.query(
+          'users',
+          where: trimmedPhone != null
+              ? 'name = ? AND phone = ?'
+              : 'name = ? AND (phone IS NULL OR phone = "")',
+          whereArgs: trimmedPhone != null
+              ? [trimmedName, trimmedPhone]
+              : [trimmedName],
+        );
+
+        String memberUserId;
+        if (existingUsers.isNotEmpty) {
+          memberUserId = existingUsers.first['id'] as String;
+        } else {
+          // Create new user
+          memberUserId = const Uuid().v4();
+          await txn.insert('users', {
+            'id': memberUserId,
+            'name': trimmedName,
+            'phone': trimmedPhone,
+            'createdAt': now,
+          });
+        }
+
+        // 2. Check if user is already a member of this group
+        final existingMembership = await txn.query(
+          'group_members',
+          where: 'groupId = ? AND userId = ?',
+          whereArgs: [groupId, memberUserId],
+        );
+
+        if (existingMembership.isNotEmpty) {
+          throw Exception('$trimmedName is already a member of this event');
+        }
+
+        // 3. Insert into group_members
+        final memberId =
+            '${groupId}_${memberUserId}_${DateTime.now().millisecondsSinceEpoch}';
+        await txn.insert('group_members', {
+          'id': memberId,
+          'groupId': groupId,
+          'userId': memberUserId,
+        });
+      });
+    } catch (e) {
+      debugPrint('Error adding new member to group: $e');
+      rethrow;
+    }
   }
 
   /// Get group members with their payment details
@@ -536,6 +677,95 @@ class GroupRepository {
       });
     } catch (e) {
       debugPrint('Error adding expense: $e');
+      rethrow;
+    }
+  }
+
+  /// Update an existing expense with participants (atomic transaction)
+  Future<void> updateExpense({
+    required String expenseId,
+    required String description,
+    required double amount,
+    required String paidByUserId,
+    required List<String> participantIds,
+    String category = 'other',
+    String? note,
+    String splitType = 'equal',
+  }) async {
+    final db = await _database.database;
+    final cleanedParticipantIds = participantIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+
+    if (amount <= 0) {
+      throw ArgumentError('Expense amount must be greater than zero');
+    }
+
+    if (cleanedParticipantIds.isEmpty) {
+      throw ArgumentError('At least one participant is required');
+    }
+
+    try {
+      await db.transaction((txn) async {
+        // 1. Update the expense row
+        await txn.update(
+          'expenses',
+          {
+            'paidByUserId': paidByUserId,
+            'amount': amount,
+            'description': description,
+            'category': category,
+            'note': note,
+            'splitType': splitType,
+          },
+          where: 'id = ?',
+          whereArgs: [expenseId],
+        );
+
+        // 2. Remove old participants
+        await txn.delete(
+          'expense_participants',
+          where: 'expenseId = ?',
+          whereArgs: [expenseId],
+        );
+
+        // 3. Re-insert new participants
+        for (final participantId in cleanedParticipantIds) {
+          await txn.insert('expense_participants', {
+            'expenseId': expenseId,
+            'userId': participantId,
+          });
+        }
+      });
+    } catch (e) {
+      debugPrint('Error updating expense: $e');
+      rethrow;
+    }
+  }
+
+  /// Delete an expense and its participants (atomic transaction)
+  Future<void> deleteExpense(String expenseId) async {
+    final db = await _database.database;
+    try {
+      await db.transaction((txn) async {
+        // 1. Delete participants first due to foreign key relation
+        await txn.delete(
+          'expense_participants',
+          where: 'expenseId = ?',
+          whereArgs: [expenseId],
+        );
+
+        // 2. Delete the expense
+        await txn.delete(
+          'expenses',
+          where: 'id = ?',
+          whereArgs: [expenseId],
+        );
+      });
+    } catch (e) {
+      debugPrint('Error deleting expense: $e');
       rethrow;
     }
   }

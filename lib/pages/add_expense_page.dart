@@ -4,8 +4,9 @@ import '../models/group.dart';
 import '../models/settlement.dart';
 import '../database/database.dart';
 import '../repositories/group_repository.dart';
+import '../utils/currency.dart';
 
-enum SplitType { equal, unequal }
+enum SplitType { equal, unequal, percentage }
 
 /// Model for tracking individual consumption in unequal split
 class MemberConsumption {
@@ -22,10 +23,30 @@ class MemberConsumption {
   }
 }
 
+/// Model for tracking individual percentage in percentage split
+class MemberPercentage {
+  final String userId;
+  final String userName;
+  final TextEditingController controller;
+  double? percentage;
+
+  MemberPercentage({required this.userId, required this.userName})
+    : controller = TextEditingController();
+
+  void dispose() {
+    controller.dispose();
+  }
+}
+
 class AddExpensePage extends StatefulWidget {
   final GroupBalanceView groupBalanceView;
+  final Expense? existingExpense;
 
-  const AddExpensePage({super.key, required this.groupBalanceView});
+  const AddExpensePage({
+    super.key,
+    required this.groupBalanceView,
+    this.existingExpense,
+  });
 
   @override
   State<AddExpensePage> createState() => _AddExpensePageState();
@@ -49,6 +70,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
   SplitType _splitType = SplitType.equal;
   List<MemberConsumption> _memberConsumptions = [];
 
+  // For percentage split
+  List<MemberPercentage> _memberPercentages = [];
+
   bool _isLoading = true;
   bool _isSaving = false;
   String? _errorMessage;
@@ -58,6 +82,24 @@ class _AddExpensePageState extends State<AddExpensePage> {
     super.initState();
     final database = AppDatabase();
     _groupRepository = GroupRepository(database: database);
+
+    if (widget.existingExpense != null) {
+      final exp = widget.existingExpense!;
+      _amountController.text = exp.amount.toStringAsFixed(2);
+      _descriptionController.text = exp.description ?? '';
+      _noteController.text = exp.note ?? '';
+      _selectedCategory = exp.category;
+      _selectedPayerId = exp.paidByUserId;
+      // Percentage-split expenses are stored as one single-participant row
+      // per member, so opening them as Equal (amount + participant unchanged)
+      // is mathematically identical and avoids losing the original shares.
+      // Unequal rows are stored the same way: a single row cannot represent
+      // a multi-member unequal split (updateExpense writes one row), so
+      // opening them as Equal with only that member checked is money-identical.
+      _splitType = SplitType.equal;
+      _selectedParticipants = exp.participantIds.toSet();
+    }
+
     _loadGroupMembers();
   }
 
@@ -68,6 +110,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
     _noteController.dispose();
     for (var consumption in _memberConsumptions) {
       consumption.dispose();
+    }
+    for (var percentage in _memberPercentages) {
+      percentage.dispose();
     }
     super.dispose();
   }
@@ -85,17 +130,30 @@ class _AddExpensePageState extends State<AddExpensePage> {
 
       setState(() {
         _members = members;
-        // Default: select first member as payer
-        if (_members.isNotEmpty) {
-          _selectedPayerId = _members.first.userId;
+        if (widget.existingExpense != null) {
+          final exp = widget.existingExpense!;
+          _selectedPayerId = exp.paidByUserId;
+          _selectedParticipants = exp.participantIds.toSet();
+        } else {
+          // Default: select first member as payer
+          if (_members.isNotEmpty) {
+            _selectedPayerId = _members.first.userId;
+          }
+          // Default: all members selected as participants for equal split
+          _selectedParticipants = _members.map((m) => m.userId).toSet();
         }
-        // Default: all members selected as participants for equal split
-        _selectedParticipants = _members.map((m) => m.userId).toSet();
 
         // Initialize consumption controllers for unequal split
         _memberConsumptions = _members
             .map(
               (m) => MemberConsumption(userId: m.userId, userName: m.userName),
+            )
+            .toList();
+
+        // Initialize percentage controllers for percentage split
+        _memberPercentages = _members
+            .map(
+              (m) => MemberPercentage(userId: m.userId, userName: m.userName),
             )
             .toList();
 
@@ -160,7 +218,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sum of consumption (₹${enteredSum.toStringAsFixed(2)}) exceeds total amount (₹${totalAmount.toStringAsFixed(2)})',
+            'Sum of consumption (${formatCurrency(enteredSum)}) exceeds total amount (${formatCurrency(totalAmount)})',
           ),
           backgroundColor: Colors.red[600],
           duration: const Duration(seconds: 3),
@@ -174,7 +232,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Sum of consumption (₹${enteredSum.toStringAsFixed(2)}) must equal total amount (₹${totalAmount.toStringAsFixed(2)})',
+            'Sum of consumption (${formatCurrency(enteredSum)}) must equal total amount (${formatCurrency(totalAmount)})',
           ),
           backgroundColor: Colors.orange[600],
           duration: const Duration(seconds: 3),
@@ -191,6 +249,57 @@ class _AddExpensePageState extends State<AddExpensePage> {
       for (var consumption in _memberConsumptions) {
         consumption.amount ??= sharePerEmpty;
       }
+    }
+
+    return true;
+  }
+
+  /// Validates percentage split: ensures positive expense amount and that
+  /// percentages sum to 100 (within a 0.01 margin of error)
+  bool _validatePercentageSplit() {
+    final totalAmount = double.tryParse(_amountController.text.trim());
+    if (totalAmount == null || totalAmount <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid expense amount'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return false;
+    }
+
+    double totalPercent = 0.0;
+    for (var item in _memberPercentages) {
+      final text = item.controller.text.trim();
+      if (text.isNotEmpty) {
+        final val = double.tryParse(text);
+        if (val == null || val < 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Invalid percentage for ${item.userName}'),
+              backgroundColor: Colors.red[600],
+            ),
+          );
+          return false;
+        }
+        totalPercent += val;
+        item.percentage = val;
+      } else {
+        item.percentage = null;
+      }
+    }
+
+    if ((totalPercent - 100.0).abs() > 0.01) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Percentages must sum to 100%. Current total: ${totalPercent.toStringAsFixed(1)}%',
+          ),
+          backgroundColor: Colors.red[600],
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return false;
     }
 
     return true;
@@ -222,7 +331,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
         );
         return;
       }
-    } else {
+    } else if (_splitType == SplitType.unequal) {
       // Unequal split validation
       if (!_validateUnequalSplit()) {
         return;
@@ -241,6 +350,11 @@ class _AddExpensePageState extends State<AddExpensePage> {
         );
         return;
       }
+    } else if (_splitType == SplitType.percentage) {
+      // Percentage split validation
+      if (!_validatePercentageSplit()) {
+        return;
+      }
     }
 
     setState(() {
@@ -254,46 +368,99 @@ class _AddExpensePageState extends State<AddExpensePage> {
       final expenseDescription = description.isEmpty ? 'Expense' : description;
       final expenseNote = note.isEmpty ? null : note;
 
-      if (_splitType == SplitType.equal) {
-        // Equal split - single expense with selected participants
-        await _groupRepository.addExpense(
-          groupId: widget.groupBalanceView.group.id,
+      if (widget.existingExpense != null) {
+        // Update existing expense
+        final participantIds = _splitType == SplitType.equal
+            ? _selectedParticipants.toList()
+            : _splitType == SplitType.percentage
+            ? _memberPercentages
+                  .where((p) => (p.percentage ?? 0) > 0)
+                  .map((p) => p.userId)
+                  .toList()
+            : _memberConsumptions
+                  .where((c) => (c.amount ?? 0) > 0)
+                  .map((c) => c.userId)
+                  .toList();
+
+        await _groupRepository.updateExpense(
+          expenseId: widget.existingExpense!.id,
           description: expenseDescription,
           amount: amount,
           paidByUserId: _selectedPayerId!,
-          participantIds: _selectedParticipants.toList(),
+          participantIds: participantIds,
           category: _selectedCategory,
           note: expenseNote,
-          splitType: 'equal',
+          splitType: _splitType == SplitType.equal
+              ? 'equal'
+              : _splitType == SplitType.percentage
+              ? 'percentage'
+              : 'unequal',
         );
       } else {
-        // Unequal split - create individual expenses for each person's consumption
-        // This allows the smart settlement merge to work correctly
-        for (var consumption in _memberConsumptions) {
-          if (consumption.amount != null && consumption.amount! > 0) {
-            await _groupRepository.addExpense(
-              groupId: widget.groupBalanceView.group.id,
-              description: '$expenseDescription - ${consumption.userName}',
-              amount: consumption.amount!,
-              paidByUserId: _selectedPayerId!,
-              participantIds: [consumption.userId], // Only this person consumed
-              category: _selectedCategory,
-              note: expenseNote,
-              splitType: 'unequal',
-            );
+        if (_splitType == SplitType.equal) {
+          // Equal split - single expense with selected participants
+          await _groupRepository.addExpense(
+            groupId: widget.groupBalanceView.group.id,
+            description: expenseDescription,
+            amount: amount,
+            paidByUserId: _selectedPayerId!,
+            participantIds: _selectedParticipants.toList(),
+            category: _selectedCategory,
+            note: expenseNote,
+            splitType: 'equal',
+          );
+        } else if (_splitType == SplitType.unequal) {
+          // Unequal split - create individual expenses for each person's consumption
+          // This allows the smart settlement merge to work correctly
+          for (var consumption in _memberConsumptions) {
+            if (consumption.amount != null && consumption.amount! > 0) {
+              await _groupRepository.addExpense(
+                groupId: widget.groupBalanceView.group.id,
+                description: '$expenseDescription - ${consumption.userName}',
+                amount: consumption.amount!,
+                paidByUserId: _selectedPayerId!,
+                participantIds: [consumption.userId],
+                category: _selectedCategory,
+                note: expenseNote,
+                splitType: 'unequal',
+              );
+            }
+          }
+        } else if (_splitType == SplitType.percentage) {
+          // Percentage split - convert percentage to amount for each member,
+          // one individual expense per member (same pattern as unequal split)
+          for (var p in _memberPercentages) {
+            if (p.percentage != null && p.percentage! > 0) {
+              final memberAmount = amount * (p.percentage! / 100.0);
+              await _groupRepository.addExpense(
+                groupId: widget.groupBalanceView.group.id,
+                description: '$expenseDescription - ${p.userName}',
+                amount: memberAmount,
+                paidByUserId: _selectedPayerId!,
+                participantIds: [p.userId],
+                category: _selectedCategory,
+                note: expenseNote,
+                splitType: 'percentage',
+              );
+            }
           }
         }
       }
 
       if (mounted) {
         // Show success message
+        final isEditing = widget.existingExpense != null;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('✓ Expense added successfully'),
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Text(
+                  isEditing
+                      ? '✓ Expense updated successfully'
+                      : '✓ Expense added successfully',
+                ),
               ],
             ),
             backgroundColor: Colors.green[600],
@@ -324,7 +491,9 @@ class _AddExpensePageState extends State<AddExpensePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Add Expense'),
+        title: Text(
+          widget.existingExpense != null ? 'Edit Expense' : 'Add Expense',
+        ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: _isLoading
@@ -372,8 +541,10 @@ class _AddExpensePageState extends State<AddExpensePage> {
                       // Section 3: Participants/Consumption based on split type
                       if (_splitType == SplitType.equal)
                         _buildEqualSplitSection()
+                      else if (_splitType == SplitType.unequal)
+                        _buildUnequalSplitSection()
                       else
-                        _buildUnequalSplitSection(),
+                        _buildPercentageSplitSection(),
                       const SizedBox(height: 32),
 
                       // Save Button
@@ -420,8 +591,8 @@ class _AddExpensePageState extends State<AddExpensePage> {
               decoration: InputDecoration(
                 labelText: 'Amount *',
                 hintText: 'Enter amount',
-                prefixText: '₹ ',
-                prefixIcon: const Icon(Icons.currency_rupee),
+                prefixText: '$currencySymbol ',
+                prefixIcon: const Icon(Icons.payments_outlined),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -588,133 +759,94 @@ class _AddExpensePageState extends State<AddExpensePage> {
             ),
             const SizedBox(height: 16),
 
-            // Split type options
+            // 3 Split type options
             Row(
               children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: _isSaving
-                        ? null
-                        : () {
-                            setState(() {
-                              _splitType = SplitType.equal;
-                            });
-                          },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: _splitType == SplitType.equal
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey[100],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: _splitType == SplitType.equal
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey[300]!,
-                          width: 2,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.pie_chart,
-                            color: _splitType == SplitType.equal
-                                ? Colors.white
-                                : Colors.grey[600],
-                            size: 32,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Equal Split',
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: _splitType == SplitType.equal
-                                      ? Colors.white
-                                      : Colors.grey[800],
-                                ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Divide equally',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: _splitType == SplitType.equal
-                                      ? Colors.white70
-                                      : Colors.grey[600],
-                                ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                _buildSplitOptionCard(
+                  type: SplitType.equal,
+                  icon: Icons.pie_chart,
+                  title: 'Equal',
+                  subtitle: 'Divide equally',
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: InkWell(
-                    onTap: _isSaving
-                        ? null
-                        : () {
-                            setState(() {
-                              _splitType = SplitType.unequal;
-                            });
-                          },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: _splitType == SplitType.unequal
-                            ? Theme.of(context).colorScheme.primary
-                            : Colors.grey[100],
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: _splitType == SplitType.unequal
-                              ? Theme.of(context).colorScheme.primary
-                              : Colors.grey[300]!,
-                          width: 2,
-                        ),
-                      ),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.calculate,
-                            color: _splitType == SplitType.unequal
-                                ? Colors.white
-                                : Colors.grey[600],
-                            size: 32,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Unequal Split',
-                            style: Theme.of(context).textTheme.titleSmall
-                                ?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: _splitType == SplitType.unequal
-                                      ? Colors.white
-                                      : Colors.grey[800],
-                                ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'By consumption',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: _splitType == SplitType.unequal
-                                      ? Colors.white70
-                                      : Colors.grey[600],
-                                ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+                const SizedBox(width: 8),
+                _buildSplitOptionCard(
+                  type: SplitType.unequal,
+                  icon: Icons.calculate,
+                  title: 'Unequal',
+                  subtitle: 'By amount',
+                ),
+                const SizedBox(width: 8),
+                _buildSplitOptionCard(
+                  type: SplitType.percentage,
+                  icon: Icons.percent,
+                  title: 'Percentage',
+                  subtitle: 'By % share',
                 ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSplitOptionCard({
+    required SplitType type,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    final isSelected = _splitType == type;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    return Expanded(
+      child: InkWell(
+        onTap: _isSaving
+            ? null
+            : () {
+                setState(() {
+                  _splitType = type;
+                });
+              },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+          decoration: BoxDecoration(
+            color: isSelected ? primaryColor : Colors.grey[100],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected ? primaryColor : Colors.grey[300]!,
+              width: 2,
+            ),
+          ),
+          child: Column(
+            children: [
+              Icon(
+                icon,
+                color: isSelected ? Colors.white : Colors.grey[600],
+                size: 28,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                      color: isSelected ? Colors.white : Colors.grey[800],
+                    ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: isSelected ? Colors.white70 : Colors.grey[600],
+                      fontSize: 11,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -896,7 +1028,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
     if (amount == null || amount <= 0) return '';
 
     final sharePerPerson = amount / _selectedParticipants.length;
-    return 'Split equally: ₹${sharePerPerson.toStringAsFixed(2)} per person';
+    return 'Split equally: ${formatCurrency(sharePerPerson)} per person';
   }
 
   Widget _buildUnequalSplitSection() {
@@ -974,7 +1106,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
                         controller: consumption.controller,
                         decoration: InputDecoration(
                           hintText: 'Amount',
-                          prefixText: '₹ ',
+                          prefixText: '$currencySymbol ',
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                           ),
@@ -1065,7 +1197,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
       textColor = Colors.red[900]!;
       icon = Icons.error_outline;
       message =
-          'Entered: ₹${enteredSum.toStringAsFixed(2)} | Exceeds total by ₹${(enteredSum - totalAmount).toStringAsFixed(2)}';
+          'Entered: ${formatCurrency(enteredSum)} | Exceeds total by ${formatCurrency(enteredSum - totalAmount)}';
     } else if (emptyCount == 0 && (enteredSum - totalAmount).abs() > 0.01) {
       // All filled but doesn't match
       bgColor = Colors.orange[50]!;
@@ -1073,7 +1205,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
       textColor = Colors.orange[900]!;
       icon = Icons.warning_amber;
       message =
-          'Entered: ₹${enteredSum.toStringAsFixed(2)} | Missing: ₹${remaining.toStringAsFixed(2)}';
+          'Entered: ${formatCurrency(enteredSum)} | Missing: ${formatCurrency(remaining)}';
     } else if (emptyCount > 0 && remaining > 0) {
       // Will auto-distribute
       final autoShare = remaining / emptyCount;
@@ -1082,7 +1214,7 @@ class _AddExpensePageState extends State<AddExpensePage> {
       textColor = Colors.blue[900]!;
       icon = Icons.auto_fix_high;
       message =
-          'Entered: ₹${enteredSum.toStringAsFixed(2)} | Remaining ₹${remaining.toStringAsFixed(2)} will be split among $emptyCount member${emptyCount > 1 ? 's' : ''} (₹${autoShare.toStringAsFixed(2)} each)';
+          'Entered: ${formatCurrency(enteredSum)} | Remaining ${formatCurrency(remaining)} will be split among $emptyCount member${emptyCount > 1 ? 's' : ''} (${formatCurrency(autoShare)} each)';
     } else {
       // Perfect match
       bgColor = Colors.green[50]!;
@@ -1118,6 +1250,201 @@ class _AddExpensePageState extends State<AddExpensePage> {
     );
   }
 
+  Widget _buildPercentageSplitSection() {
+    final totalAmount = double.tryParse(_amountController.text.trim()) ?? 0.0;
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.percent,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 24,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Percentage Split',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Enter percentage for each person (must sum to 100%)',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            const Divider(),
+            const SizedBox(height: 16),
+
+            // Members Percentage inputs
+            ..._memberPercentages.map((item) {
+              final pct = double.tryParse(item.controller.text.trim()) ?? 0.0;
+              final calculatedShare =
+                  totalAmount > 0 ? (totalAmount * pct / 100.0) : 0.0;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.2),
+                      child: Text(
+                        item.userName[0].toUpperCase(),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.userName,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyLarge
+                                ?.copyWith(fontWeight: FontWeight.w500),
+                          ),
+                          if (totalAmount > 0 && pct > 0)
+                            Text(
+                              '≈ ${formatCurrency(calculatedShare)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: Colors.green[700],
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 110,
+                      child: TextFormField(
+                        controller: item.controller,
+                        decoration: InputDecoration(
+                          hintText: '0',
+                          suffixText: '%',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          isDense: true,
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        enabled: !_isSaving,
+                        onChanged: (value) {
+                          setState(() {}); // Refresh calculated shares and summary
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+
+            const SizedBox(height: 16),
+            _buildPercentageSummary(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPercentageSummary() {
+    double totalPercent = 0.0;
+    int enteredCount = 0;
+
+    for (var item in _memberPercentages) {
+      final text = item.controller.text.trim();
+      if (text.isNotEmpty) {
+        final val = double.tryParse(text);
+        if (val != null) {
+          totalPercent += val;
+          enteredCount++;
+        }
+      }
+    }
+
+    final diff = 100.0 - totalPercent;
+    Color bgColor;
+    Color borderColor;
+    Color textColor;
+    IconData icon;
+    String message;
+
+    if (totalPercent > 100.01) {
+      bgColor = Colors.red[50]!;
+      borderColor = Colors.red[200]!;
+      textColor = Colors.red[900]!;
+      icon = Icons.error_outline;
+      message =
+          'Total: ${totalPercent.toStringAsFixed(1)}% | Exceeds 100% by ${(totalPercent - 100).toStringAsFixed(1)}%';
+    } else if (diff.abs() <= 0.01 && enteredCount > 0) {
+      bgColor = Colors.green[50]!;
+      borderColor = Colors.green[200]!;
+      textColor = Colors.green[900]!;
+      icon = Icons.check_circle_outline;
+      message = 'Total: 100% — Exact match!';
+    } else {
+      bgColor = Colors.orange[50]!;
+      borderColor = Colors.orange[200]!;
+      textColor = Colors.orange[900]!;
+      icon = Icons.warning_amber;
+      message =
+          'Total: ${totalPercent.toStringAsFixed(1)}% | Remaining: ${diff.toStringAsFixed(1)}%';
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: textColor, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: textColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSaveButton() {
     return SizedBox(
       width: double.infinity,
@@ -1135,7 +1462,11 @@ class _AddExpensePageState extends State<AddExpensePage> {
               )
             : const Icon(Icons.save),
         label: Text(
-          _isSaving ? 'Saving...' : 'Save Expense',
+          _isSaving
+              ? 'Saving...'
+              : (widget.existingExpense != null
+                  ? 'Update Expense'
+                  : 'Save Expense'),
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
             color: Colors.white,
             fontWeight: FontWeight.w600,

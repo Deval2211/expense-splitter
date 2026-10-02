@@ -5,10 +5,51 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:io';
 import 'pages/login_page.dart';
 import 'pages/groups_list_page.dart';
+import 'utils/currency.dart';
+
+/// Global notifier to manage and notify theme mode changes across the app
+final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
+
+/// Updates the active theme mode and persists the preference to SharedPreferences
+Future<void> updateThemeMode(ThemeMode mode) async {
+  themeNotifier.value = mode;
+  final prefs = await SharedPreferences.getInstance();
+  String value;
+  switch (mode) {
+    case ThemeMode.light:
+      value = 'light';
+      break;
+    case ThemeMode.dark:
+      value = 'dark';
+      break;
+    case ThemeMode.system:
+      value = 'system';
+      break;
+  }
+  await prefs.setString('themeMode', value);
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
+  // Load saved theme preference
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final savedTheme = prefs.getString('themeMode') ?? 'system';
+    if (savedTheme == 'light') {
+      themeNotifier.value = ThemeMode.light;
+    } else if (savedTheme == 'dark') {
+      themeNotifier.value = ThemeMode.dark;
+    } else {
+      themeNotifier.value = ThemeMode.system;
+    }
+  } catch (e) {
+    debugPrint('Error loading theme preference: $e');
+  }
+
+  // Load saved currency preference
+  await getCurrencySymbol();
+
   // Initialize sqflite based on platform
   if (!kIsWeb) {
     // Only use FFI for desktop platforms (Windows, macOS, Linux)
@@ -27,13 +68,29 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Expense Splitter',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: kIsWeb ? const WebFallbackPage() : const AppEntry(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (context, currentMode, _) {
+        return MaterialApp(
+          title: 'Expense Splitter',
+          themeMode: currentMode,
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.deepPurple,
+              brightness: Brightness.light,
+            ),
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.deepPurple,
+              brightness: Brightness.dark,
+            ),
+            useMaterial3: true,
+          ),
+          home: kIsWeb ? const WebFallbackPage() : const AppEntry(),
+        );
+      },
     );
   }
 }
