@@ -5,6 +5,7 @@ import '../repositories/group_repository.dart';
 import '../repositories/user_repository.dart';
 import '../models/friend_input.dart';
 import '../utils/currency.dart';
+import '../theme/app_theme.dart';
 
 class CreateGroupPage extends StatefulWidget {
   const CreateGroupPage({super.key});
@@ -46,7 +47,7 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final userId = prefs.getString('currentUserId');
-      
+
       if (userId != null) {
         _currentUserId = userId;
         final user = await _userRepository.getUserById(userId);
@@ -105,7 +106,9 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                   hintText: 'Enter amount paid by friend',
                   prefixText: '$currencySymbol ',
                 ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 validator: (value) {
                   if (value != null && value.isNotEmpty) {
                     final amount = double.tryParse(value);
@@ -127,14 +130,14 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
           ElevatedButton(
             onPressed: () {
               if (formKey.currentState!.validate()) {
-                final amountPaid = amountController.text.trim().isEmpty 
-                    ? 0.0 
+                final amountPaid = amountController.text.trim().isEmpty
+                    ? 0.0
                     : double.parse(amountController.text.trim());
-                    
+
                 final friend = FriendInput(
                   name: nameController.text.trim(),
-                  phone: phoneController.text.trim().isEmpty 
-                      ? null 
+                  phone: phoneController.text.trim().isEmpty
+                      ? null
                       : phoneController.text.trim(),
                   amountPaid: amountPaid,
                 );
@@ -195,8 +198,8 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
           ElevatedButton(
             onPressed: () {
               if (formKey.currentState!.validate()) {
-                final amount = amountController.text.trim().isEmpty 
-                    ? 0.0 
+                final amount = amountController.text.trim().isEmpty
+                    ? 0.0
                     : double.parse(amountController.text.trim());
                 Navigator.of(context).pop(amount);
               }
@@ -251,39 +254,38 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
 
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    final TextTheme textTheme = theme.textTheme;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Create Event'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
+      appBar: AppBar(),
       body: SingleChildScrollView(
         child: Padding(
-          padding: const EdgeInsets.all(16.0),
+          padding: const EdgeInsets.all(16),
           child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Event Name Section
+                // Screen title (32) + one friendly helper line (16)
+                Text('Create Event', style: textTheme.displayLarge),
+                const SizedBox(height: 8),
                 Text(
-                  'Event Details',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                  'Name your event, then add the friends you are splitting with.',
+                  style: textTheme.bodyMedium,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 24),
+
+                // Event Details Section
+                Text('Event Details', style: textTheme.titleMedium),
+                const SizedBox(height: 16),
                 TextFormField(
                   controller: _eventNameController,
-                  decoration: InputDecoration(
+                  // Global InputDecorationTheme handles the field styling.
+                  decoration: const InputDecoration(
                     labelText: 'Event Name *',
                     hintText: 'e.g. Goa Trip, Flatmates, Birthday Party',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -294,83 +296,74 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                   enabled: !_isLoading,
                   textCapitalization: TextCapitalization.words,
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
 
                 // Members Section
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Members',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
+                    Text('Members', style: textTheme.titleMedium),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
                           '${_friends.length + 1} member${_friends.length + 1 == 1 ? '' : 's'}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.grey[600],
-                          ),
+                          style: textTheme.labelMedium,
                         ),
                         Text(
                           'Total: ${formatCurrency(_creatorAmountPaid + _friends.fold(0.0, (sum, friend) => sum + friend.amountPaid))}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Colors.green[700],
-                                fontWeight: FontWeight.w600,
+                          style: textTheme.bodyLarge?.copyWith(
+                            color: colorScheme.primary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
 
                 // Current User Card (always first)
                 Card(
-                  elevation: 1,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
                   child: ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      backgroundColor: colorScheme.primary,
                       child: Text(
                         (_currentUserName ?? 'Y')[0].toUpperCase(),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
+                        style: textTheme.bodyLarge?.copyWith(
+                          color: colorScheme.onPrimary,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ),
                     title: Text(
                       _currentUserName ?? 'You',
-                      style: const TextStyle(fontWeight: FontWeight.w500),
+                      style: textTheme.bodyLarge,
                     ),
                     subtitle: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('You (Event creator)'),
-                        const SizedBox(height: 4),
+                        Text(
+                          'You (Event creator)',
+                          style: textTheme.labelMedium,
+                        ),
+                        const SizedBox(height: 8),
                         Text(
                           'Paid: ${formatCurrency(_creatorAmountPaid)}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: _creatorAmountPaid > 0 
-                                    ? Colors.green[700] 
-                                    : Colors.grey[600],
-                                fontWeight: FontWeight.w500,
+                          style: textTheme.labelLarge?.copyWith(
+                            color: _creatorAmountPaid > 0
+                                ? colorScheme.primary
+                                : colorScheme.onSurfaceVariant,
                           ),
                         ),
                       ],
                     ),
                     trailing: IconButton(
-                      icon: Icon(
-                        Icons.edit,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      onPressed: _isLoading ? null : _showEditCreatorAmountDialog,
+                      icon: Icon(Icons.edit, color: colorScheme.primary),
+                      onPressed: _isLoading
+                          ? null
+                          : _showEditCreatorAmountDialog,
                     ),
                     onTap: _isLoading ? null : _showEditCreatorAmountDialog,
                   ),
@@ -383,61 +376,43 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Card(
-                      elevation: 1,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
                       child: ListTile(
                         leading: CircleAvatar(
-                          backgroundColor: Colors.grey[400],
+                          backgroundColor: colorScheme.primaryContainer,
                           child: Text(
                             friend.name[0].toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
+                            style: textTheme.bodyLarge?.copyWith(
+                              color: colorScheme.onPrimaryContainer,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
-                        title: Text(
-                          friend.name,
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
+                        title: Text(friend.name, style: textTheme.bodyLarge),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (friend.phone != null)
-                              Text(
-                                friend.phone!,
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.grey[600],
-                                ),
-                              )
-                            else
-                              Text(
-                                'No phone number',
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: Colors.grey[500],
-                                ),
-                              ),
-                            const SizedBox(height: 4),
+                            Text(
+                              friend.phone ?? 'No phone number',
+                              style: textTheme.labelMedium,
+                            ),
+                            const SizedBox(height: 8),
                             Text(
                               'Paid: ${formatCurrency(friend.amountPaid)}',
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    color: friend.amountPaid > 0 
-                                        ? Colors.green[700] 
-                                        : Colors.grey[600],
-                                    fontWeight: FontWeight.w500,
-                                ),
+                              style: textTheme.labelLarge?.copyWith(
+                                color: friend.amountPaid > 0
+                                    ? colorScheme.primary
+                                    : colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ],
                         ),
                         trailing: IconButton(
                           icon: Icon(
                             Icons.remove_circle,
-                            color: Colors.red[400],
+                            color: colorScheme.error,
                           ),
-                          onPressed: _isLoading 
-                              ? null 
+                          onPressed: _isLoading
+                              ? null
                               : () => _removeFriend(index),
                         ),
                       ),
@@ -445,74 +420,67 @@ class _CreateGroupPageState extends State<CreateGroupPage> {
                   );
                 }),
 
-                // Add Friend Button
+                // Add Friend Button — the page's one warm accent (10% rule)
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
                     onPressed: _isLoading ? null : _showAddFriendDialog,
-                    icon: const Icon(Icons.person_add),
-                    label: const Text('Add Friend'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
+                    icon: Container(
+                      width: 24,
+                      height: 24,
+                      decoration: const BoxDecoration(
+                        color: AppTheme.warmAccent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.person_add,
+                        size: 16,
+                        color: AppTheme.onWarm,
                       ),
                     ),
+                    label: const Text('Add Friend'),
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
 
                 // Error message
                 if (_errorMessage != null)
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(16),
                     margin: const EdgeInsets.only(bottom: 16),
                     decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      border: Border.all(color: Colors.red.shade300),
-                      borderRadius: BorderRadius.circular(8),
+                      color: colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(16),
                     ),
                     child: Text(
                       _errorMessage!,
-                      style: TextStyle(color: Colors.red.shade700),
+                      style: textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onErrorContainer,
+                      ),
                     ),
                   ),
 
                 // Create Event Button
                 SizedBox(
                   width: double.infinity,
-                  height: 48,
                   child: _isLoading
                       ? ElevatedButton(
                           onPressed: null,
-                          child: const SizedBox(
+                          child: SizedBox(
                             height: 24,
                             width: 24,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                colorScheme.onPrimary,
+                              ),
                             ),
                           ),
                         )
                       : ElevatedButton(
                           onPressed: _createEvent,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                Theme.of(context).colorScheme.primary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          child: Text(
-                            'Create Event',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
+                          child: const Text('Create Event'),
                         ),
                 ),
                 const SizedBox(height: 16),

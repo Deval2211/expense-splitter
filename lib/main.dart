@@ -5,10 +5,13 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'dart:io';
 import 'pages/login_page.dart';
 import 'pages/groups_list_page.dart';
+import 'theme/app_theme.dart';
 import 'utils/currency.dart';
 
 /// Global notifier to manage and notify theme mode changes across the app
-final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
+final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier<ThemeMode>(
+  ThemeMode.system,
+);
 
 /// Updates the active theme mode and persists the preference to SharedPreferences
 Future<void> updateThemeMode(ThemeMode mode) async {
@@ -27,6 +30,20 @@ Future<void> updateThemeMode(ThemeMode mode) async {
       break;
   }
   await prefs.setString('themeMode', value);
+}
+
+/// Removes the Material 3 overscroll stretch animation (and glow) app-wide.
+/// Applied once via MaterialApp.scrollBehavior, so every page inherits it —
+/// no per-page physics edits needed.
+class NoStretchScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Widget buildOverscrollIndicator(
+    BuildContext context,
+    Widget child,
+    ScrollableDetails details,
+  ) {
+    return child;
+  }
 }
 
 void main() async {
@@ -59,7 +76,7 @@ void main() async {
     }
     // For Android and iOS, sqflite works natively without FFI
   }
-  
+
   runApp(const MyApp());
 }
 
@@ -74,20 +91,10 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Expense Splitter',
           themeMode: currentMode,
-          theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: Colors.deepPurple,
-              brightness: Brightness.light,
-            ),
-            useMaterial3: true,
-          ),
-          darkTheme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: Colors.deepPurple,
-              brightness: Brightness.dark,
-            ),
-            useMaterial3: true,
-          ),
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          scrollBehavior: NoStretchScrollBehavior(),
+          debugShowCheckedModeBanner: false,
           home: kIsWeb ? const WebFallbackPage() : const AppEntry(),
         );
       },
@@ -101,10 +108,7 @@ class WebFallbackPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Expense Splitter'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
+      appBar: AppBar(title: const Text('Expense Splitter')),
       body: Center(
         child: SingleChildScrollView(
           child: Padding(
@@ -121,36 +125,40 @@ class WebFallbackPage extends StatelessWidget {
                 Text(
                   'Expense Splitter',
                   style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   'Web Demo Mode',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
                 ),
                 const SizedBox(height: 32),
                 Container(
-                  padding: const EdgeInsets.all(20),
+                  padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.blue.shade50,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.blue.shade200),
+                    color: Theme.of(context).colorScheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(20),
                   ),
                   child: Column(
                     children: [
                       Icon(
                         Icons.info_outline,
-                        color: Colors.blue.shade700,
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSecondaryContainer,
                         size: 32,
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
                       Text(
                         'Local Storage Required',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              color: Colors.blue.shade800,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSecondaryContainer,
                               fontWeight: FontWeight.w600,
                             ),
                       ),
@@ -160,8 +168,10 @@ class WebFallbackPage extends StatelessWidget {
                         'For full functionality, please download and run on:',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.blue.shade700,
-                            ),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onSecondaryContainer,
+                        ),
                       ),
                     ],
                   ),
@@ -174,7 +184,11 @@ class WebFallbackPage extends StatelessWidget {
                   children: [
                     _buildPlatformChip(context, Icons.android, 'Android'),
                     _buildPlatformChip(context, Icons.phone_iphone, 'iOS'),
-                    _buildPlatformChip(context, Icons.laptop_windows, 'Windows'),
+                    _buildPlatformChip(
+                      context,
+                      Icons.laptop_windows,
+                      'Windows',
+                    ),
                     _buildPlatformChip(context, Icons.laptop_mac, 'macOS'),
                     _buildPlatformChip(context, Icons.laptop, 'Linux'),
                   ],
@@ -185,7 +199,9 @@ class WebFallbackPage extends StatelessWidget {
                     // Could navigate to a demo version or download page
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Please download the native app for full functionality'),
+                        content: Text(
+                          'Please download the native app for full functionality',
+                        ),
                         duration: Duration(seconds: 3),
                       ),
                     );
@@ -193,7 +209,10 @@ class WebFallbackPage extends StatelessWidget {
                   icon: const Icon(Icons.download),
                   label: const Text('Get Native App'),
                   style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
                   ),
                 ),
               ],
@@ -227,9 +246,7 @@ class AppEntry extends StatelessWidget {
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
-            body: Center(
-              child: CircularProgressIndicator(),
-            ),
+            body: Center(child: CircularProgressIndicator()),
           );
         }
 
@@ -254,4 +271,3 @@ class AppEntry extends StatelessWidget {
     }
   }
 }
-

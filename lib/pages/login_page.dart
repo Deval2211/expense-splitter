@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database.dart';
 import '../repositories/user_repository.dart';
+import '../theme/app_theme.dart';
 import 'groups_list_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -62,9 +63,7 @@ class _LoginPageState extends State<LoginPage> {
         // Navigate to GroupsListPage
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (context) => const GroupsListPage(),
-          ),
+          MaterialPageRoute(builder: (context) => const GroupsListPage()),
         );
       }
     } catch (e) {
@@ -77,50 +76,60 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24.0,
+              vertical: 32.0,
+            ),
             child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Welcome heading
-                  const SizedBox(height: 20),
-                  Text(
-                    'Welcome',
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                  // One warm accent moment (the 10% color) above the greeting.
+                  Container(
+                    width: 48,
+                    height: 48,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppTheme.warmAccent,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                      Icons.waving_hand_rounded,
+                      color: AppTheme.onWarm,
+                      size: 26,
+                    ),
                   ),
+                  const SizedBox(height: 16),
+
+                  // Welcome heading
+                  Text('Welcome', style: theme.textTheme.displayLarge),
                   const SizedBox(height: 8),
                   Text(
                     "Let's set up your profile",
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: Colors.grey[600],
-                        ),
+                    style: theme.textTheme.bodyMedium,
                   ),
-                  const SizedBox(height: 40),
+                  const SizedBox(height: 32),
 
                   // Name TextField
                   Text(
                     'Name',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _nameController,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       hintText: 'Enter your name',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
                     ),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
@@ -135,77 +144,58 @@ class _LoginPageState extends State<LoginPage> {
                   // Phone TextField
                   Text(
                     'Phone (Optional)',
-                    style: Theme.of(context).textTheme.titleMedium,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _phoneController,
-                    decoration: InputDecoration(
+                    decoration: const InputDecoration(
                       hintText: 'Enter your phone number',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
                     ),
                     keyboardType: TextInputType.phone,
                     enabled: !_isLoading,
                   ),
                   const SizedBox(height: 32),
 
-                  // Error message
+                  // Error message — tonal error surface, no hard borders
                   if (_errorMessage != null)
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.red.shade50,
-                        border: Border.all(color: Colors.red.shade300),
-                        borderRadius: BorderRadius.circular(8),
+                        color: scheme.errorContainer,
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: Text(
                         _errorMessage!,
-                        style: TextStyle(color: Colors.red.shade700),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onErrorContainer,
+                        ),
                       ),
                     ),
                   if (_errorMessage != null) const SizedBox(height: 16),
 
-                  // Continue button
+                  // Continue button — full width, thumb zone, min 56px tall
                   SizedBox(
                     width: double.infinity,
-                    height: 48,
-                    child: _isLoading
-                        ? ElevatedButton(
-                            onPressed: null,
-                            child: const SizedBox(
-                              height: 24,
-                              width: 24,
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _handleContinue,
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(56),
+                      ),
+                      child: _isLoading
+                          ? SizedBox(
+                              height: 22,
+                              width: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
+                                color: scheme.onPrimary,
                               ),
-                            ),
-                          )
-                        : ElevatedButton(
-                            onPressed: _handleContinue,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  Theme.of(context).colorScheme.primary,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                            ),
-                            child: Text(
-                              'Continue',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ),
+                            )
+                          : const Text('Continue'),
+                    ),
                   ),
                 ],
               ),

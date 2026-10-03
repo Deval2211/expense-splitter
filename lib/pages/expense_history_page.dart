@@ -4,6 +4,7 @@ import '../models/group.dart';
 import '../models/settlement.dart';
 import '../database/database.dart';
 import '../repositories/group_repository.dart';
+import '../theme/app_theme.dart';
 import '../utils/currency.dart';
 
 /// Type of entry in the activity timeline
@@ -17,16 +18,16 @@ class TimelineEntry {
   final int timestamp;
 
   TimelineEntry.fromExpense(Expense item)
-      : type = TimelineEntryType.expense,
-        expense = item,
-        settlement = null,
-        timestamp = item.createdAt;
+    : type = TimelineEntryType.expense,
+      expense = item,
+      settlement = null,
+      timestamp = item.createdAt;
 
   TimelineEntry.fromSettlement(Settlement item)
-      : type = TimelineEntryType.settlement,
-        expense = null,
-        settlement = item,
-        timestamp = item.paidAt ?? 0;
+    : type = TimelineEntryType.settlement,
+      expense = null,
+      settlement = item,
+      timestamp = item.paidAt ?? 0;
 
   bool get isExpense => type == TimelineEntryType.expense;
   bool get isSettlement => type == TimelineEntryType.settlement;
@@ -35,10 +36,7 @@ class TimelineEntry {
 class ExpenseHistoryPage extends StatefulWidget {
   final GroupBalanceView groupBalanceView;
 
-  const ExpenseHistoryPage({
-    super.key,
-    required this.groupBalanceView,
-  });
+  const ExpenseHistoryPage({super.key, required this.groupBalanceView});
 
   @override
   State<ExpenseHistoryPage> createState() => _ExpenseHistoryPageState();
@@ -107,7 +105,8 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
     return _entries.where((entry) {
       final matchesQuery = query.isEmpty || _matchesQuery(entry, query);
       // Settlements carry no category, so a category filter shows expenses only.
-      final matchesCategory = _selectedCategories.isEmpty ||
+      final matchesCategory =
+          _selectedCategories.isEmpty ||
           (entry.isExpense &&
               _selectedCategories.contains(entry.expense!.category));
       return matchesQuery && matchesCategory;
@@ -177,29 +176,14 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final groupName = widget.groupBalanceView.group.name;
-
+    // Plain AppBar: back arrow from the navigator, refresh as the one action.
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Activity History',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              groupName,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.normal),
-            ),
-          ],
-        ),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadHistoryData,
             tooltip: 'Refresh',
+            onPressed: _loadHistoryData,
           ),
         ],
       ),
@@ -208,6 +192,10 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
   }
 
   Widget _buildBody() {
+    final ThemeData theme = Theme.of(context);
+    final TextTheme textTheme = theme.textTheme;
+    final ColorScheme colorScheme = theme.colorScheme;
+
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -215,16 +203,22 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
     if (_errorMessage != null) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+              Icon(Icons.error_outline, size: 56, color: colorScheme.error),
               const SizedBox(height: 16),
+              Text(
+                'Couldn\'t load activity',
+                textAlign: TextAlign.center,
+                style: textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
               Text(
                 _errorMessage!,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
+                style: textTheme.bodyMedium,
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
@@ -239,46 +233,25 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
     }
 
     if (_entries.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.history, size: 64, color: Colors.grey[400]),
-              const SizedBox(height: 16),
-              Text(
-                'No Activity Yet',
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: Colors.grey[700],
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Expenses and completed settlements will appear here in chronological order.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey[600],
-                    ),
-              ),
-            ],
-          ),
-        ),
+      return Column(
+        children: [
+          _buildIntro(),
+          Expanded(child: _buildEmptyState()),
+        ],
       );
     }
 
     final filteredEntries = _getFilteredEntries();
-    final hasActiveFilter = _hasActiveFilter;
 
     return Column(
       children: [
+        _buildIntro(),
         _buildSearchBar(),
         _buildCategoryChips(),
         _buildFilterSummaryBar(
           totalCount: _entries.length,
           filteredCount: filteredEntries.length,
-          hasActiveFilter: hasActiveFilter,
+          hasActiveFilter: _hasActiveFilter,
         ),
         const Divider(height: 1),
         Expanded(
@@ -287,17 +260,16 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
               : RefreshIndicator(
                   onRefresh: _loadHistoryData,
                   child: ListView.separated(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: const EdgeInsets.all(16),
                     itemCount: filteredEntries.length,
                     separatorBuilder: (context, index) =>
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 16),
                     itemBuilder: (context, index) {
                       final entry = filteredEntries[index];
                       if (entry.isExpense) {
                         return _buildExpenseCard(entry.expense!);
-                      } else {
-                        return _buildSettlementCard(entry.settlement!);
                       }
+                      return _buildSettlementCard(entry.settlement!);
                     },
                   ),
                 ),
@@ -306,11 +278,33 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
     );
   }
 
+  /// Screen title (32) + one friendly helper line (16) — the sibling idiom.
+  Widget _buildIntro() {
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Activity', style: textTheme.displayLarge),
+          const SizedBox(height: 8),
+          Text(
+            'Everything spent and settled in '
+            '${widget.groupBalanceView.group.name}, newest first.',
+            style: textTheme.bodyMedium,
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSearchBar() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: TextField(
         controller: _searchController,
+        // Global InputDecorationTheme supplies fill, border and padding.
         decoration: InputDecoration(
           hintText: 'Search description, payer, note...',
           prefixIcon: const Icon(Icons.search),
@@ -324,58 +318,57 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
                   },
                 )
               : null,
-          filled: true,
-          fillColor: Theme.of(context).cardColor,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(color: Colors.grey.shade300),
-          ),
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         ),
         onChanged: (_) => setState(() {}),
       ),
     );
   }
 
+  /// Horizontal category row, lazily built chip by chip.
   Widget _buildCategoryChips() {
+    final List<MapEntry<String, String>> categories = expenseCategories.entries
+        .toList();
+
     return SizedBox(
       height: 52,
-      child: ListView(
+      child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              label: const Text('All'),
-              selected: _selectedCategories.isEmpty,
-              onSelected: (selected) {
-                if (selected) {
-                  setState(_selectedCategories.clear);
-                }
-              },
-            ),
-          ),
-          ...expenseCategories.entries.map((entry) {
+        itemCount: categories.length + 1,
+        itemBuilder: (context, index) {
+          if (index == 0) {
             return Padding(
               padding: const EdgeInsets.only(right: 8),
               child: FilterChip(
-                label: Text(entry.value),
-                selected: _selectedCategories.contains(entry.key),
+                label: const Text('All'),
+                selected: _selectedCategories.isEmpty,
                 onSelected: (selected) {
-                  setState(() {
-                    if (selected) {
-                      _selectedCategories.add(entry.key);
-                    } else {
-                      _selectedCategories.remove(entry.key);
-                    }
-                  });
+                  if (selected) {
+                    setState(_selectedCategories.clear);
+                  }
                 },
               ),
             );
-          }),
-        ],
+          }
+
+          final MapEntry<String, String> category = categories[index - 1];
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text(category.value),
+              selected: _selectedCategories.contains(category.key),
+              onSelected: (selected) {
+                setState(() {
+                  if (selected) {
+                    _selectedCategories.add(category.key);
+                  } else {
+                    _selectedCategories.remove(category.key);
+                  }
+                });
+              },
+            ),
+          );
+        },
       ),
     );
   }
@@ -386,7 +379,7 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
     required bool hasActiveFilter,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -394,10 +387,7 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
             hasActiveFilter
                 ? 'Showing $filteredCount of $totalCount items'
                 : 'Total $totalCount items',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.grey[600],
-                  fontWeight: FontWeight.w500,
-                ),
+            style: Theme.of(context).textTheme.labelMedium,
           ),
           if (hasActiveFilter)
             TextButton(
@@ -413,29 +403,55 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
     );
   }
 
-  Widget _buildNoMatchesState() {
+  /// The page's one warm accent — a friendly nudge, not a warning.
+  Widget _buildEmptyState() {
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(32.0),
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.search_off, size: 56, color: Colors.grey[400]),
+            const Icon(Icons.history, size: 56, color: AppTheme.warmAccent),
             const SizedBox(height: 16),
-            Text(
-              'No matching expenses found',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.grey[700],
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
+            Text('No activity yet', style: textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              'Try changing your search query or category filters',
+              'Expenses and settled-up payments will appear here the moment '
+              'they happen.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.grey[500],
-                  ),
+              style: textTheme.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoMatchesState() {
+    final ThemeData theme = Theme.of(context);
+    final TextTheme textTheme = theme.textTheme;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.search_off,
+              size: 56,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 16),
+            Text('Nothing matches that', style: textTheme.titleLarge),
+            const SizedBox(height: 8),
+            Text(
+              'Try a different search, or clear the category chips to see '
+              'everything again.',
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
@@ -450,20 +466,21 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
   }
 
   Widget _buildExpenseCard(Expense expense) {
-    final categoryLabel = expenseCategories[expense.category] ?? expense.category;
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    final TextTheme textTheme = theme.textTheme;
+
+    final categoryLabel =
+        expenseCategories[expense.category] ?? expense.category;
     final dateStr = _formatDateTime(expense.createdAt);
-    final description = (expense.description != null && expense.description!.isNotEmpty)
+    final description =
+        (expense.description != null && expense.description!.isNotEmpty)
         ? expense.description!
         : 'Expense';
 
     return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
-      ),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -472,75 +489,75 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  backgroundColor: colorScheme.primaryContainer,
                   child: Icon(
                     _getCategoryIcon(expense.category),
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    color: colorScheme.onPrimaryContainer,
                     size: 20,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         description,
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                        style: textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
                       Text(
                         'Paid by ${expense.paidByUserName}',
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey[700],
-                            ),
+                        style: textTheme.labelMedium,
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   formatCurrency(expense.amount),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green[800],
-                      ),
+                  textAlign: TextAlign.right,
+                  style: textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurface,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             const Divider(height: 1),
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
+                // Category pill: neutral tonal fill, same idea as the
+                // "Settled" chip on the events list.
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey.shade300),
+                    color: colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
                     categoryLabel,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade800,
-                      fontWeight: FontWeight.w500,
+                    style: textTheme.labelMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),
                 Row(
                   children: [
-                    Icon(Icons.access_time, size: 14, color: Colors.grey[500]),
-                    const SizedBox(width: 4),
-                    Text(
-                      dateStr,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.grey[600],
-                          ),
+                    Icon(
+                      Icons.access_time,
+                      size: 16,
+                      color: colorScheme.onSurfaceVariant,
                     ),
+                    const SizedBox(width: 8),
+                    Text(dateStr, style: textTheme.labelMedium),
                   ],
                 ),
               ],
@@ -549,10 +566,9 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
               const SizedBox(height: 8),
               Text(
                 'Note: ${expense.note!}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontStyle: FontStyle.italic,
-                      color: Colors.grey[600],
-                    ),
+                style: textTheme.labelMedium?.copyWith(
+                  fontStyle: FontStyle.italic,
+                ),
               ),
             ],
           ],
@@ -562,17 +578,15 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
   }
 
   Widget _buildSettlementCard(Settlement settlement) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    final TextTheme textTheme = theme.textTheme;
+
     final dateStr = _formatDateTime(settlement.paidAt ?? 0);
 
     return Card(
-      elevation: 0,
-      color: Colors.green.shade50,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.green.shade200),
-      ),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -580,74 +594,79 @@ class _ExpenseHistoryPageState extends State<ExpenseHistoryPage> {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: Colors.green.shade100,
+                  backgroundColor: colorScheme.primaryContainer,
                   child: Icon(
                     Icons.check_circle,
-                    color: Colors.green.shade700,
+                    color: colorScheme.primary,
                     size: 22,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       RichText(
                         text: TextSpan(
-                          style: Theme.of(context).textTheme.bodyLarge,
+                          style: textTheme.bodyLarge,
                           children: [
                             TextSpan(
                               text: settlement.fromUserName,
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                             const TextSpan(text: ' paid '),
                             TextSpan(
                               text: settlement.toUserName,
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
-                          color: Colors.green.shade200,
-                          borderRadius: BorderRadius.circular(4),
+                          color: colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(16),
                         ),
                         child: Text(
                           'Settlement',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.green.shade900,
+                          style: textTheme.labelMedium?.copyWith(
+                            color: colorScheme.onPrimaryContainer,
                           ),
                         ),
                       ),
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   formatCurrency(settlement.amount),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.green.shade900,
-                      ),
+                  textAlign: TextAlign.right,
+                  style: textTheme.labelLarge?.copyWith(
+                    color: colorScheme.primary,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                Icon(Icons.access_time, size: 14, color: Colors.green.shade700),
-                const SizedBox(width: 4),
-                Text(
-                  dateStr,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.green.shade800,
-                      ),
+                Icon(
+                  Icons.access_time,
+                  size: 16,
+                  color: colorScheme.onSurfaceVariant,
                 ),
+                const SizedBox(width: 8),
+                Text(dateStr, style: textTheme.labelMedium),
               ],
             ),
           ],

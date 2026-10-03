@@ -4,6 +4,7 @@ import '../database/database.dart';
 import '../repositories/group_repository.dart';
 import '../models/group.dart';
 import '../main.dart';
+import '../theme/app_theme.dart';
 import '../utils/currency.dart';
 import 'create_group_page.dart';
 import 'group_details_page.dart';
@@ -21,6 +22,10 @@ class _GroupsListPageState extends State<GroupsListPage> {
   late GroupRepository _groupRepository;
   String? _currentUserId; // Make nullable to handle loading state
   int _refreshKey = 0; // Add refresh key to trigger rebuilds
+  // Cached so plain rebuilds (theme change, popups) don't re-run the queries —
+  // only _refreshData() invalidates it. The member-count loop inside makes
+  // each run cost N+1 local queries, so refetch-per-build would be wasteful.
+  Future<_HomeData>? _homeFuture;
 
   @override
   void initState() {
@@ -51,9 +56,7 @@ class _GroupsListPageState extends State<GroupsListPage> {
     if (mounted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(
-          builder: (context) => const LoginPage(),
-        ),
+        MaterialPageRoute(builder: (context) => const LoginPage()),
       );
     }
   }
@@ -61,15 +64,14 @@ class _GroupsListPageState extends State<GroupsListPage> {
   void _refreshData() {
     setState(() {
       _refreshKey++;
+      _homeFuture = null; // force a fresh load on next build
     });
   }
 
   Future<void> _navigateToProfile() async {
     await Navigator.push<bool>(
       context,
-      MaterialPageRoute(
-        builder: (context) => const ProfilePage(),
-      ),
+      MaterialPageRoute(builder: (context) => const ProfilePage()),
     );
 
     // Refresh unconditionally: Profile can persist changes (e.g. currency)
@@ -126,9 +128,7 @@ class _GroupsListPageState extends State<GroupsListPage> {
   Future<void> _navigateToCreateGroup() async {
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(
-        builder: (context) => const CreateGroupPage(),
-      ),
+      MaterialPageRoute(builder: (context) => const CreateGroupPage()),
     );
 
     // If a group was created successfully, refresh the data
@@ -137,21 +137,54 @@ class _GroupsListPageState extends State<GroupsListPage> {
     }
   }
 
+  /// Loads everything the home screen renders in one go, so the balance hero
+  /// and the event cards always agree and arrive together.
+  Future<_HomeData> _loadHomeData(String userId) async {
+    // Both futures are kicked off before either is awaited so the queries
+    // overlap instead of stacking.
+    final overallFuture = _groupRepository.getOverallNetBalance(userId);
+    final groupsFuture = _groupRepository.getGroupsWithBalance(userId);
+
+    final overallBalance = await overallFuture;
+    final groups = await groupsFuture;
+
+    final memberCounts = <String, int>{};
+    for (final view in groups) {
+      try {
+        final members = await _groupRepository.getGroupMembersWithPayments(
+          view.group.id,
+        );
+        memberCounts[view.group.id] = members.length;
+      } catch (e) {
+        // A missing count only hides a meta line — never break the list.
+        debugPrint('Error loading member count: $e');
+      }
+    }
+
+    return _HomeData(
+      overallBalance: overallBalance,
+      groups: groups,
+      memberCounts: memberCounts,
+    );
+  }
+
   Future<void> _deleteGroup(String groupId) async {
+    // Captured before the first await so the SnackBar stays on-palette.
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+
     try {
       await _groupRepository.deleteGroup(groupId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('✓ Event deleted successfully'),
+                Icon(Icons.check_circle, color: colorScheme.onInverseSurface),
+                const SizedBox(width: 8),
+                const Text('Event deleted'),
               ],
             ),
-            backgroundColor: Colors.green[600],
             duration: const Duration(seconds: 2),
           ),
         );
@@ -161,16 +194,16 @@ class _GroupsListPageState extends State<GroupsListPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error deleting event: ${e.toString()}'),
-            backgroundColor: Colors.red[600],
-          ),
+          SnackBar(content: Text('Error deleting event: ${e.toString()}')),
         );
       }
     }
   }
 
   void _showDeleteGroupDialog(Group group) {
+    // Destructive action reads as error; dialog chrome comes from dialogTheme.
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -189,8 +222,8 @@ class _GroupsListPageState extends State<GroupsListPage> {
               _deleteGroup(group.id);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red[600],
-              foregroundColor: Colors.white,
+              backgroundColor: colorScheme.error,
+              foregroundColor: colorScheme.onError,
             ),
             child: const Text('Delete'),
           ),
@@ -203,17 +236,15 @@ class _GroupsListPageState extends State<GroupsListPage> {
   Widget build(BuildContext context) {
     // Show loading indicator until current user ID is loaded
     if (_currentUserId == null) {
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
+    final ColorScheme colorScheme = Theme.of(context).colorScheme;
+    final TextTheme textTheme = Theme.of(context).textTheme;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Events'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -231,7 +262,7 @@ class _GroupsListPageState extends State<GroupsListPage> {
                 child: Row(
                   children: [
                     Icon(Icons.person_outline, size: 20),
-                    SizedBox(width: 12),
+                    SizedBox(width: 16),
                     Text('Profile'),
                   ],
                 ),
@@ -241,7 +272,7 @@ class _GroupsListPageState extends State<GroupsListPage> {
                 child: Row(
                   children: [
                     Icon(Icons.brightness_6, size: 20),
-                    SizedBox(width: 12),
+                    SizedBox(width: 16),
                     Text('Theme'),
                   ],
                 ),
@@ -251,7 +282,7 @@ class _GroupsListPageState extends State<GroupsListPage> {
                 child: Row(
                   children: [
                     Icon(Icons.logout, size: 20),
-                    SizedBox(width: 12),
+                    SizedBox(width: 16),
                     Text('Logout'),
                   ],
                 ),
@@ -260,62 +291,60 @@ class _GroupsListPageState extends State<GroupsListPage> {
           ),
         ],
       ),
-      body: FutureBuilder<double>(
+      body: FutureBuilder<_HomeData>(
         key: ValueKey(_refreshKey), // Add key to force rebuild on refresh
-        future: _groupRepository.getOverallNetBalance(_currentUserId!),
-        builder: (context, overallBalanceSnapshot) {
-          return FutureBuilder<List<GroupBalanceView>>(
-            key: ValueKey('groups_$_refreshKey'), // Add key to force rebuild on refresh
-            future: _groupRepository.getGroupsWithBalance(_currentUserId!),
-            builder: (context, groupsSnapshot) {
-              if (overallBalanceSnapshot.connectionState ==
-                      ConnectionState.waiting ||
-                  groupsSnapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(),
-                );
-              }
-
-              if (overallBalanceSnapshot.hasError ||
-                  groupsSnapshot.hasError) {
-                return Center(
-                  child: Text(
-                    'Error loading events',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                );
-              }
-
-              final overallBalance = overallBalanceSnapshot.data ?? 0;
-              final groupsWithBalance = groupsSnapshot.data ?? [];
-
-              return SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Overall balance card
-                      _buildOverallBalanceCard(context, overallBalance),
-                      const SizedBox(height: 24),
-
-                      // Divider
-                      Divider(
-                        color: Colors.grey[300],
-                        thickness: 1,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Groups list or empty state
-                      if (groupsWithBalance.isEmpty)
-                        _buildEmptyState(context)
-                      else
-                        _buildGroupsList(context, groupsWithBalance),
-                    ],
-                  ),
+        future: _homeFuture ??= _loadHomeData(_currentUserId!),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: colorScheme.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Error loading events', style: textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Your events will show up here in a moment.',
+                      style: textTheme.bodyMedium,
+                    ),
+                  ],
                 ),
-              );
-            },
+              ),
+            );
+          }
+
+          final _HomeData? data = snapshot.data;
+          if (data == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          return SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Balance hero — the one number that matters
+                  _buildBalanceHero(context, data.overallBalance),
+                  const SizedBox(height: 24),
+
+                  if (data.groups.isEmpty)
+                    _buildEmptyState(context)
+                  else ...[
+                    Text('Your events', style: textTheme.titleMedium),
+                    const SizedBox(height: 16),
+                    _buildGroupsList(context, data.groups, data.memberCounts),
+                  ],
+                ],
+              ),
+            ),
           );
         },
       ),
@@ -327,53 +356,45 @@ class _GroupsListPageState extends State<GroupsListPage> {
     );
   }
 
-  Widget _buildOverallBalanceCard(BuildContext context, double balance) {
-    final isOwed = balance > 0;
-    final isNegative = balance < 0;
+  /// Overall balance, framed the way a friend would say it.
+  Widget _buildBalanceHero(BuildContext context, double balance) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    final TextTheme textTheme = theme.textTheme;
 
-    Color cardColor;
-    String balanceText;
+    final bool isOwed = balance > 0;
+    final bool isOwing = balance < 0;
+
+    String headline;
+    String caption;
+    Color headlineColor;
 
     if (isOwed) {
-      cardColor = Colors.green.shade50;
-      balanceText = 'You are owed ${formatCurrency(balance)}';
-    } else if (isNegative) {
-      cardColor = Colors.red.shade50;
-      balanceText = 'You owe ${formatCurrency(-balance)}';
+      headline = "You're owed ${formatCurrency(balance)}";
+      caption = "Across all your events, you're ahead.";
+      headlineColor = colorScheme.primary;
+    } else if (isOwing) {
+      headline = 'You owe ${formatCurrency(-balance)}';
+      caption = "Across all your events, you're due to settle up.";
+      headlineColor = colorScheme.error;
     } else {
-      cardColor = Colors.grey.shade100;
-      balanceText = 'Settled up';
+      headline = 'All settled up 🎉';
+      caption = 'Nothing to pay or chase right now.';
+      headlineColor = colorScheme.onSurface;
     }
 
     return Card(
-      color: cardColor,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Your overall balance',
-              style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: Colors.grey[600],
-              ),
+              headline,
+              style: textTheme.displayLarge?.copyWith(color: headlineColor),
             ),
             const SizedBox(height: 8),
-            Text(
-              balanceText,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: isOwed
-                        ? Colors.green.shade700
-                        : isNegative
-                            ? Colors.red.shade700
-                            : Colors.grey[700],
-              ),
-            ),
+            Text(caption, style: textTheme.bodyMedium),
           ],
         ),
       ),
@@ -381,29 +402,27 @@ class _GroupsListPageState extends State<GroupsListPage> {
   }
 
   Widget _buildEmptyState(BuildContext context) {
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
     return Center(
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 40),
+        padding: const EdgeInsets.symmetric(vertical: 32),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.event_note_outlined,
-              size: 64,
-              color: Colors.grey[400],
+            // The page's one warm accent — a friendly nudge, not a warning.
+            const Icon(
+              Icons.celebration_outlined,
+              size: 56,
+              color: AppTheme.warmAccent,
             ),
             const SizedBox(height: 16),
-            Text(
-              'No events yet',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.grey[600],
-                  ),
-            ),
+            Text('No events yet', style: textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              'Tap + to create your first event',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.grey[500],
-              ),
+              'Tap + to plan something fun and split the bill in a couple of taps.',
+              textAlign: TextAlign.center,
+              style: textTheme.bodyMedium,
             ),
           ],
         ),
@@ -414,7 +433,10 @@ class _GroupsListPageState extends State<GroupsListPage> {
   Widget _buildGroupsList(
     BuildContext context,
     List<GroupBalanceView> groupsWithBalance,
+    Map<String, int> memberCounts,
   ) {
+    final TextTheme textTheme = Theme.of(context).textTheme;
+
     return ListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -422,41 +444,12 @@ class _GroupsListPageState extends State<GroupsListPage> {
       itemBuilder: (context, index) {
         final groupBalance = groupsWithBalance[index];
         final balance = groupBalance.netBalance;
-        final isOwed = balance > 0;
-        final isNegative = balance < 0;
+        final int memberCount = memberCounts[groupBalance.group.id] ?? 0;
 
         return Card(
-          elevation: 1,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          margin: const EdgeInsets.only(bottom: 12),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 12,
-            ),
-            title: Text(
-              groupBalance.group.name,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-            ),
-            subtitle: Text(
-              groupBalance.balanceText(),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: isOwed
-                        ? Colors.green.shade700
-                        : isNegative
-                            ? Colors.red.shade700
-                            : Colors.grey[600],
-                    fontWeight: FontWeight.w500,
-                  ),
-            ),
-            trailing: Icon(
-              Icons.chevron_right,
-              color: Colors.grey[400],
-            ),
+          margin: const EdgeInsets.only(bottom: 16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
             onTap: () async {
               await Navigator.push(
                 context,
@@ -470,9 +463,93 @@ class _GroupsListPageState extends State<GroupsListPage> {
               _refreshData();
             },
             onLongPress: () => _showDeleteGroupDialog(groupBalance.group),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          groupBalance.group.name,
+                          style: textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          memberCount == 1
+                              ? '1 member'
+                              : '$memberCount members',
+                          style: textTheme.labelMedium,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  _buildBalanceChip(context, balance),
+                ],
+              ),
+            ),
           ),
         );
       },
     );
   }
+
+  /// Per-event balance as a small tonal chip: blue when you are ahead, red
+  /// when you owe, neutral when it is already square.
+  Widget _buildBalanceChip(BuildContext context, double balance) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    final TextTheme textTheme = theme.textTheme;
+
+    final bool isOwed = balance > 0;
+    final bool isOwing = balance < 0;
+
+    Color background;
+    Color foreground;
+    String label;
+
+    if (isOwed) {
+      background = colorScheme.primaryContainer;
+      foreground = colorScheme.onPrimaryContainer;
+      label = '+${formatCurrency(balance)}';
+    } else if (isOwing) {
+      background = colorScheme.errorContainer;
+      foreground = colorScheme.onErrorContainer;
+      label = '-${formatCurrency(-balance)}';
+    } else {
+      background = colorScheme.surfaceContainerHighest;
+      foreground = colorScheme.onSurfaceVariant;
+      label = 'Settled';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
+        label,
+        style: textTheme.labelLarge?.copyWith(color: foreground),
+      ),
+    );
+  }
+}
+
+/// Everything the home screen renders, loaded together so the hero and the
+/// list never disagree.
+class _HomeData {
+  final double overallBalance;
+  final List<GroupBalanceView> groups;
+  final Map<String, int> memberCounts;
+
+  const _HomeData({
+    required this.overallBalance,
+    required this.groups,
+    required this.memberCounts,
+  });
 }

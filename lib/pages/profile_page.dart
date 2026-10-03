@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database.dart';
 import '../repositories/user_repository.dart';
 import '../utils/currency.dart';
+import '../theme/app_theme.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -106,16 +107,16 @@ class _ProfilePageState extends State<ProfilePage> {
       await _userRepository.updateUser(updatedUser);
 
       if (mounted) {
+        final ColorScheme colorScheme = Theme.of(context).colorScheme;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Row(
+            content: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Profile updated successfully'),
+                Icon(Icons.check_circle, color: colorScheme.onInverseSurface),
+                const SizedBox(width: 8),
+                const Text('Profile updated successfully'),
               ],
             ),
-            backgroundColor: Colors.green[600],
             duration: const Duration(seconds: 2),
           ),
         );
@@ -148,15 +149,17 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Edit Profile'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
+      // AppBar takes its surface/onSurface colors from the global theme.
+      appBar: AppBar(),
       body: _buildBody(),
     );
   }
 
   Widget _buildBody() {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme colorScheme = theme.colorScheme;
+    final TextTheme textTheme = theme.textTheme;
+
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -164,16 +167,16 @@ class _ProfilePageState extends State<ProfilePage> {
     if (_errorMessage != null && _currentUser == null) {
       return Center(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+              Icon(Icons.error_outline, size: 48, color: colorScheme.error),
               const SizedBox(height: 16),
               Text(
                 _errorMessage!,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
+                style: textTheme.bodyLarge,
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
@@ -192,74 +195,73 @@ class _ProfilePageState extends State<ProfilePage> {
         : 'U';
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.all(16),
       child: Form(
         key: _formKey,
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Intro block — screen title (32) + one friendly helper line (16).
+            Text('Edit Profile', style: textTheme.displayLarge),
             const SizedBox(height: 8),
+            Text(
+              'Update your details and choose how amounts are shown.',
+              style: textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 24),
 
-            // Profile Avatar
-            CircleAvatar(
-              radius: 46,
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              child: Text(
-                initialLetter,
-                style: const TextStyle(
-                  fontSize: 40,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+            // Avatar — the page's one warm accent (10% rule).
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: AppTheme.warmAccent,
+                  shape: BoxShape.circle,
+                ),
+                child: CircleAvatar(
+                  radius: 46,
+                  backgroundColor: colorScheme.primary,
+                  child: Text(
+                    initialLetter,
+                    style: textTheme.displayLarge?.copyWith(
+                      color: colorScheme.onPrimary,
+                    ),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
 
-            // Member Info Card
+            // Member info — theme Card, meta text in label styles.
             Card(
-              elevation: 0,
-              color: Colors.grey.shade100,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.grey.shade300),
-              ),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.all(16),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
                     Column(
                       children: [
-                        Text(
-                          'Member Since',
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                        ),
-                        const SizedBox(height: 4),
+                        Text('Member Since', style: textTheme.labelMedium),
+                        const SizedBox(height: 8),
                         Text(
                           _formatDate(_currentUser?.createdAt ?? 0),
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: textTheme.labelLarge,
                         ),
                       ],
                     ),
-                    Container(height: 24, width: 1, color: Colors.grey[400]),
+                    const SizedBox(
+                      height: 32,
+                      child: VerticalDivider(width: 1),
+                    ),
                     Column(
                       children: [
-                        Text(
-                          'Account ID',
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                        ),
-                        const SizedBox(height: 4),
+                        Text('Account ID', style: textTheme.labelMedium),
+                        const SizedBox(height: 8),
                         Text(
                           _currentUser != null && _currentUser!.id.length >= 8
                               ? '${_currentUser!.id.substring(0, 8)}...'
                               : 'Local User',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: textTheme.labelLarge,
                         ),
                       ],
                     ),
@@ -267,31 +269,15 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 24),
 
-            // Name Field
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Full Name *',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-            ),
-            const SizedBox(height: 8),
+            // Name field — global InputDecorationTheme handles the borders.
             TextFormField(
               controller: _nameController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
+                labelText: 'Full Name *',
                 hintText: 'Enter your full name',
-                prefixIcon: const Icon(Icons.person_outline),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
+                prefixIcon: Icon(Icons.person_outline),
               ),
               textCapitalization: TextCapitalization.words,
               enabled: !_isSaving,
@@ -302,48 +288,31 @@ class _ProfilePageState extends State<ProfilePage> {
                 return null;
               },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
 
-            // Phone Field
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Phone Number (Optional)',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-            ),
-            const SizedBox(height: 8),
+            // Phone field
             TextFormField(
               controller: _phoneController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
+                labelText: 'Phone Number (Optional)',
                 hintText: 'Enter your phone number',
-                prefixIcon: const Icon(Icons.phone_outlined),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
+                prefixIcon: Icon(Icons.phone_outlined),
               ),
               keyboardType: TextInputType.phone,
               enabled: !_isSaving,
             ),
             const SizedBox(height: 24),
 
-            // Currency Symbol
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Currency Symbol',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-            ),
+            // Currency section — heading in the sibling page's idiom, chips
+            // styled entirely by the global ChipTheme (selected =
+            // primaryContainer).
+            Text('Currency Symbol', style: textTheme.titleMedium),
             const SizedBox(height: 8),
+            Text(
+              'Used for every amount shown in the app.',
+              style: textTheme.labelMedium,
+            ),
+            const SizedBox(height: 16),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -358,23 +327,28 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             const SizedBox(height: 24),
 
-            // Error Display (if saving fails)
+            // Save failure banner
             if (_errorMessage != null) ...[
               Container(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  border: Border.all(color: Colors.red.shade300),
-                  borderRadius: BorderRadius.circular(8),
+                  color: colorScheme.errorContainer,
+                  borderRadius: BorderRadius.circular(16),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.error_outline, color: Colors.red.shade700, size: 20),
+                    Icon(
+                      Icons.error_outline,
+                      color: colorScheme.onErrorContainer,
+                      size: 20,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         _errorMessage!,
-                        style: TextStyle(color: Colors.red.shade700),
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onErrorContainer,
+                        ),
                       ),
                     ),
                   ],
@@ -383,38 +357,34 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 16),
             ],
 
-            // Save Button
+            // Save action — themed ElevatedButton, full width, thumb zone.
             SizedBox(
               width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: _isSaving ? null : _saveProfile,
-                icon: _isSaving
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
+              child: _isSaving
+                  ? ElevatedButton(
+                      onPressed: null,
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(56),
+                      ),
+                      child: SizedBox(
+                        height: 24,
+                        width: 24,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: colorScheme.onPrimary,
                         ),
-                      )
-                    : const Icon(Icons.check),
-                label: Text(
-                  _isSaving ? 'Saving Changes...' : 'Save Changes',
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Theme.of(context).colorScheme.primary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
+                      ),
+                    )
+                  : ElevatedButton.icon(
+                      onPressed: _saveProfile,
+                      icon: const Icon(Icons.check),
+                      label: const Text('Save Changes'),
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(56),
+                      ),
+                    ),
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),

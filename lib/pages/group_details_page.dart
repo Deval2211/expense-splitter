@@ -30,6 +30,9 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   bool _isLoading = true;
   String? _errorMessage;
 
+  // Which of the 4 bottom tabs is visible (Settle / Expenses / Stats / More).
+  int _tabIndex = 0;
+
   @override
   void initState() {
     super.initState();
@@ -95,34 +98,40 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
     }
   }
 
+  /// Shared snackbar helper — uses the theme's SnackBar (inverseSurface), so
+  /// the same message reads correctly in light AND dark mode.
+  void _showSnack(String message, {bool error = false}) {
+    final scheme = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              error ? Icons.error_outline : Icons.check_circle,
+              color: scheme.onInverseSurface,
+            ),
+            const SizedBox(width: 8),
+            Text(message),
+          ],
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _markAsPaid(Settlement settlement) async {
     try {
       await _groupRepository.markSettlementAsPaid(settlement);
 
-      // Show success message
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '✓ Settlement marked as paid',
-              style: const TextStyle(color: Colors.white),
-            ),
-            backgroundColor: Colors.green[600],
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        _showSnack('✓ Settlement marked as paid');
       }
 
       // Reload data to reflect changes
       await _loadGroupData();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red[600],
-          ),
-        );
+        _showSnack('Error: ${e.toString()}', error: true);
       }
     }
   }
@@ -133,18 +142,10 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         _groupRepository,
         widget.groupBalanceView.group.id,
       );
-      await Share.share(
-        summary,
-        subject: '$_groupName - Summary',
-      );
+      await Share.share(summary, subject: '$_groupName - Summary');
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to share summary: ${e.toString()}'),
-            backgroundColor: Colors.red[600],
-          ),
-        );
+        _showSnack('Failed to share summary: ${e.toString()}', error: true);
       }
     }
   }
@@ -165,6 +166,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   }
 
   void _showDeleteExpenseDialog(Expense expense) {
+    final scheme = Theme.of(context).colorScheme;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -183,8 +185,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
               _deleteExpense(expense.id);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red[600],
-              foregroundColor: Colors.white,
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
             ),
             child: const Text('Delete'),
           ),
@@ -198,41 +200,24 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
       await _groupRepository.deleteExpense(expenseId);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              '✓ Expense deleted successfully',
-              style: TextStyle(color: Colors.white),
-            ),
-            backgroundColor: Colors.green[600],
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        _showSnack('✓ Expense deleted successfully');
       }
 
       await _loadGroupData();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error deleting expense: ${e.toString()}'),
-            backgroundColor: Colors.red[600],
-          ),
-        );
+        _showSnack('Error deleting expense: ${e.toString()}', error: true);
       }
     }
   }
 
-  void _showEditGroupModal() {
+  Future<void> _showEditGroupModal() async {
     final nameController = TextEditingController(text: _groupName);
     final formKey = GlobalKey<FormState>();
 
-    showModalBottomSheet(
+    await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
       builder: (bottomSheetContext) => StatefulBuilder(
         builder: (context, setModalState) {
           return Padding(
@@ -252,9 +237,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                     children: [
                       Text(
                         'Edit Event',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
                       IconButton(
                         icon: const Icon(Icons.close),
@@ -275,11 +258,6 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                             controller: nameController,
                             decoration: const InputDecoration(
                               labelText: 'Event Name',
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
                             ),
                             validator: (value) {
                               if (value == null || value.trim().isEmpty) {
@@ -305,34 +283,15 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                               setState(() {
                                 _groupName = newName;
                               });
-                              ScaffoldMessenger.of(this.context).showSnackBar(
-                                SnackBar(
-                                  content: const Text(
-                                    '✓ Event name updated',
-                                    style: TextStyle(color: Colors.white),
-                                  ),
-                                  backgroundColor: Colors.green[600],
-                                ),
-                              );
+                              _showSnack('✓ Event name updated');
                               if (bottomSheetContext.mounted) {
                                 Navigator.of(bottomSheetContext).pop();
                               }
                             } catch (e) {
                               if (!mounted) return;
-                              ScaffoldMessenger.of(this.context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Error: ${e.toString()}'),
-                                  backgroundColor: Colors.red[600],
-                                ),
-                              );
+                              _showSnack('Error: ${e.toString()}', error: true);
                             }
                           },
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 14,
-                            ),
-                          ),
                           child: const Text('Save'),
                         ),
                       ],
@@ -349,9 +308,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                     children: [
                       Text(
                         'Members (${_members.length})',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                       OutlinedButton.icon(
                         onPressed: () async {
@@ -363,7 +320,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
                   // Members List
                   ..._members.map(
@@ -372,11 +329,25 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                       contentPadding: EdgeInsets.zero,
                       leading: CircleAvatar(
                         radius: 16,
+                        backgroundColor: member.amountPaid > 0
+                            ? Theme.of(context).colorScheme.primaryContainer
+                            : Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
                         child: Text(
                           member.userName.isNotEmpty
                               ? member.userName[0].toUpperCase()
                               : '?',
-                          style: const TextStyle(fontSize: 12),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: member.amountPaid > 0
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.onPrimaryContainer
+                                : Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
+                          ),
                         ),
                       ),
                       title: Text(member.userName),
@@ -384,14 +355,15 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                         member.amountPaid > 0
                             ? 'Paid ${formatCurrency(member.amountPaid)}'
                             : 'No payments yet',
-                        style: TextStyle(
-                          color: member.amountPaid > 0
-                              ? Colors.green[700]
-                              : Colors.grey[600],
-                          fontSize: 12,
-                        ),
+                        style: Theme.of(context).textTheme.labelMedium
+                            ?.copyWith(
+                              color: member.amountPaid > 0
+                                  ? Theme.of(context).colorScheme.primary
+                                  : null,
+                            ),
                       ),
-                    )),
+                    ),
+                  ),
                   const SizedBox(height: 16),
                 ],
               ),
@@ -400,6 +372,9 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         },
       ),
     );
+
+    // F6 fix: one-shot controller is released once the sheet closes.
+    nameController.dispose();
   }
 
   Future<void> _showAddMemberDialog() async {
@@ -472,7 +447,6 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                         content: Text(
                           e.toString().replaceAll('Exception: ', ''),
                         ),
-                        backgroundColor: Colors.red[600],
                       ),
                     );
                   }
@@ -485,285 +459,23 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
       ),
     );
 
+    // F6 fix: one-shot controllers are released once the dialog closes.
+    nameController.dispose();
+    phoneController.dispose();
+
     if (added == true) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('✓ Member added successfully'),
-              ],
-            ),
-            backgroundColor: Colors.green[600],
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        _showSnack('✓ Member added successfully');
       }
       await _loadGroupData();
     }
   }
 
-  Widget _buildNoExpensesCard() {
-    return Card(
-      elevation: 0,
-      color: Colors.grey[100],
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Padding(
-        padding: EdgeInsets.all(24.0),
-        child: Center(
-          child: Text(
-            'No expenses recorded yet',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildExpensesList() {
-    return Column(
-      children: _expenses.map((expense) {
-        final date = DateTime.fromMillisecondsSinceEpoch(expense.createdAt);
-        final dateStr = '${date.day}/${date.month}/${date.year}';
-        final categoryLabel =
-            expenseCategories[expense.category] ?? expense.category;
-
-        return Card(
-          elevation: 1,
-          margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CircleAvatar(
-                  backgroundColor: Theme.of(context)
-                      .colorScheme
-                      .primary
-                      .withValues(alpha: 0.1),
-                  child: Icon(
-                    Icons.receipt_long,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        expense.description?.isNotEmpty == true
-                            ? expense.description!
-                            : 'Expense',
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Paid by ${expense.paidByUserName} • $dateStr',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[600],
-                            ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Category: $categoryLabel • ${expense.participantIds.length} participant${expense.participantIds.length == 1 ? '' : 's'}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.grey[500],
-                            ),
-                      ),
-                      if (expense.note != null &&
-                          expense.note!.trim().isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'Note: ${expense.note}',
-                          style:
-                              Theme.of(context).textTheme.bodySmall?.copyWith(
-                                    fontStyle: FontStyle.italic,
-                                    color: Colors.grey[600],
-                                  ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      formatCurrency(expense.amount),
-                      style:
-                          Theme.of(context).textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.green[700],
-                              ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.edit_outlined, size: 20),
-                          onPressed: () => _navigateToEditExpense(expense),
-                          tooltip: 'Edit Expense',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          color: Colors.blue[700],
-                        ),
-                        const SizedBox(width: 12),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 20),
-                          onPressed: () => _showDeleteExpenseDialog(expense),
-                          tooltip: 'Delete Expense',
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          color: Colors.red[600],
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Event Settlement'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: _shareGroupSummary,
-            tooltip: 'Share Summary',
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            onPressed: _showEditGroupModal,
-            tooltip: 'Edit Event',
-          ),
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'Activity History',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => ExpenseHistoryPage(
-                    groupBalanceView: widget.groupBalanceView,
-                  ),
-                ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadGroupData,
-            tooltip: 'Refresh',
-          ),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
-                    const SizedBox(height: 16),
-                    Text(
-                      _errorMessage!,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyLarge,
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: _loadGroupData,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _loadGroupData,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Section 1: Event Info Card
-                      _buildEventInfoCard(),
-                      const SizedBox(height: 24),
-
-                      if (_stats?.hasData ?? false) ...[
-                        _buildStatsCard(),
-                        const SizedBox(height: 24),
-                      ],
-
-                      // Section: Expenses List
-                      _buildSectionHeader(
-                        'Expenses',
-                        _expenses.length,
-                      ),
-                      const SizedBox(height: 12),
-                      _expenses.isEmpty
-                          ? _buildNoExpensesCard()
-                          : _buildExpensesList(),
-                      const SizedBox(height: 24),
-
-                      // Section 2: Pending Settlements
-                      _buildSectionHeader(
-                        'Pending Settlements',
-                        _pendingSettlements.length,
-                      ),
-                      const SizedBox(height: 12),
-                      _pendingSettlements.isEmpty
-                          ? _buildAllSettledCard()
-                          : _buildPendingSettlementsList(),
-                      const SizedBox(height: 24),
-
-                      // Section 3: Completed Settlements
-                      if (_completedSettlements.isNotEmpty) ...[
-                        const Divider(height: 32),
-                        _buildSectionHeader(
-                          'Completed Settlements',
-                          _completedSettlements.length,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildCompletedSettlementsList(),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _navigateToAddExpense,
-        icon: const Icon(Icons.add),
-        label: const Text('Add Expense'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
+  void _navigateToHistory() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) =>
+            ExpenseHistoryPage(groupBalanceView: widget.groupBalanceView),
       ),
     );
   }
@@ -782,7 +494,428 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
     }
   }
 
+  void _goToTab(int index) {
+    if (_tabIndex == index) return;
+    setState(() {
+      _tabIndex = index;
+    });
+  }
+
+  // ────────────────────────── Shell: dashboard + tabs ───────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_groupName),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadGroupData,
+            tooltip: 'Refresh',
+          ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 64,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _errorMessage!,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _loadGroupData,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry'),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : Column(
+              children: [
+                _buildDashboardHeader(),
+                Expanded(
+                  child: IndexedStack(
+                    index: _tabIndex,
+                    children: [
+                      _settleTab(),
+                      _expensesTab(),
+                      _statsTab(),
+                      _moreTab(),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tabIndex,
+        onDestinationSelected: _goToTab,
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.handshake_outlined),
+            selectedIcon: Icon(Icons.handshake),
+            label: 'Settle',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long),
+            label: 'Expenses',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.insights_outlined),
+            selectedIcon: Icon(Icons.insights),
+            label: 'Stats',
+          ),
+          NavigationDestination(icon: Icon(Icons.more_horiz), label: 'More'),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _navigateToAddExpense,
+        icon: const Icon(Icons.add),
+        label: const Text('Add Expense'),
+      ),
+    );
+  }
+
+  /// Compact always-visible dashboard: three tappable summary cards that jump
+  /// straight to the matching tab (the user asked for dashboard + tabs, together).
+  Widget _buildDashboardHeader() {
+    final totalPaid = _members.fold<double>(
+      0.0,
+      (sum, m) => sum + m.amountPaid,
+    );
+    final fairShare = _members.isNotEmpty ? totalPaid / _members.length : 0.0;
+    final pending = _pendingSettlements.length;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: _dashboardCard(
+              value: formatCurrency(totalPaid),
+              label: 'Spent',
+              onTap: () => _goToTab(1),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _dashboardCard(
+              value: pending > 0 ? '$pending' : '🎉',
+              label: pending > 0 ? 'to settle' : 'All settled',
+              highlight: pending > 0,
+              onTap: () => _goToTab(0),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _dashboardCard(
+              value: formatCurrency(fairShare),
+              label: 'per person',
+              onTap: () => _goToTab(2),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dashboardCard({
+    required String value,
+    required String label,
+    VoidCallback? onTap,
+    bool highlight = false,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: highlight ? scheme.primaryContainer : scheme.surfaceContainerLow,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // FittedBox guards long currency strings from overflowing the
+              // narrow one-third-width card.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  value,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: highlight ? scheme.onPrimaryContainer : null,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: highlight ? scheme.onPrimaryContainer : null,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ───────────────────────────── Tab 1: Settle ──────────────────────────────
+
+  Widget _settleTab() {
+    return RefreshIndicator(
+      onRefresh: _loadGroupData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionHeader(
+                'Pending Settlements',
+                _pendingSettlements.length,
+              ),
+              const SizedBox(height: 16),
+              _pendingSettlements.isEmpty
+                  ? _buildAllSettledCard()
+                  : _buildPendingSettlementsList(),
+              if (_completedSettlements.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 8),
+                _buildSectionHeader(
+                  'Completed Settlements',
+                  _completedSettlements.length,
+                ),
+                const SizedBox(height: 16),
+                _buildCompletedSettlementsList(),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────── Tab 2: Expenses ──────────────────────────────
+
+  Widget _expensesTab() {
+    return RefreshIndicator(
+      onRefresh: _loadGroupData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSectionHeader('Expenses', _expenses.length),
+              const SizedBox(height: 16),
+              _expenses.isEmpty ? _buildNoExpensesCard() : _buildExpensesList(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ──────────────────────────── Tab 3: Stats ────────────────────────────────
+
+  Widget _statsTab() {
+    return RefreshIndicator(
+      onRefresh: _loadGroupData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildEventInfoCard(),
+              const SizedBox(height: 16),
+              if (_stats?.hasData ?? false) _buildStatsCard(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ──────────────────────────── Tab 4: More ─────────────────────────────────
+
+  /// Share / edit / history moved out of the crowded AppBar into rows here.
+  Widget _moreTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        ListTile(
+          leading: const Icon(Icons.edit_outlined),
+          title: const Text('Edit event'),
+          subtitle: const Text('Rename this event or manage members'),
+          onTap: _showEditGroupModal,
+        ),
+        ListTile(
+          leading: const Icon(Icons.share_outlined),
+          title: const Text('Share summary'),
+          subtitle: const Text('Send the breakdown to your friends'),
+          onTap: _shareGroupSummary,
+        ),
+        ListTile(
+          leading: const Icon(Icons.history),
+          title: const Text('Activity history'),
+          subtitle: const Text('Every expense and payment, in order'),
+          onTap: _navigateToHistory,
+        ),
+        ListTile(
+          leading: const Icon(Icons.refresh),
+          title: const Text('Refresh'),
+          subtitle: const Text('Reload this event'),
+          onTap: _loadGroupData,
+        ),
+      ],
+    );
+  }
+
+  // ─────────────────────────── Section builders ─────────────────────────────
+
+  Widget _buildNoExpensesCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Center(
+          child: Text(
+            'No expenses yet — tap + to add the first one.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpensesList() {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: _expenses.map((expense) {
+        final date = DateTime.fromMillisecondsSinceEpoch(expense.createdAt);
+        final dateStr = '${date.day}/${date.month}/${date.year}';
+        final categoryLabel =
+            expenseCategories[expense.category] ?? expense.category;
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 16),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CircleAvatar(
+                  backgroundColor: scheme.primaryContainer,
+                  child: Icon(
+                    Icons.receipt_long,
+                    color: scheme.onPrimaryContainer,
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        expense.description?.isNotEmpty == true
+                            ? expense.description!
+                            : 'Expense',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Paid by ${expense.paidByUserName} • $dateStr',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Category: $categoryLabel • ${expense.participantIds.length} participant${expense.participantIds.length == 1 ? '' : 's'}',
+                        style: Theme.of(context).textTheme.labelMedium,
+                      ),
+                      if (expense.note != null &&
+                          expense.note!.trim().isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Note: ${expense.note}',
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      formatCurrency(expense.amount),
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.edit_outlined, size: 20),
+                          onPressed: () => _navigateToEditExpense(expense),
+                          tooltip: 'Edit Expense',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          color: scheme.primary,
+                        ),
+                        const SizedBox(width: 16),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline, size: 20),
+                          onPressed: () => _showDeleteExpenseDialog(expense),
+                          tooltip: 'Delete Expense',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          color: scheme.error,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
   Widget _buildEventInfoCard() {
+    final scheme = Theme.of(context).colorScheme;
     final totalAmount = _members.fold<double>(
       0.0,
       (sum, member) => sum + member.amountPaid,
@@ -790,8 +923,6 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
     final fairShare = _members.isNotEmpty ? totalAmount / _members.length : 0.0;
 
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -800,18 +931,12 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
             // Event Name
             Row(
               children: [
-                Icon(
-                  Icons.event,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
+                Icon(Icons.event, color: scheme.primary, size: 24),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Text(
                     _groupName,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
               ],
@@ -825,26 +950,19 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
               'Total Amount',
               formatCurrency(totalAmount),
               Icons.payments,
-              Colors.green[700]!,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
             // Fair Share
             _buildInfoRow(
               'Per Person Share',
               formatCurrency(fairShare),
               Icons.person,
-              Colors.blue[700]!,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
             // Members Count
-            _buildInfoRow(
-              'Total Members',
-              '${_members.length}',
-              Icons.group,
-              Colors.orange[700]!,
-            ),
+            _buildInfoRow('Total Members', '${_members.length}', Icons.group),
 
             // Members List
             if (_members.isNotEmpty) ...[
@@ -853,12 +971,11 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
               const SizedBox(height: 16),
               Text(
                 'Payment Details',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               ..._members.map(
                 (member) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -867,20 +984,20 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                       CircleAvatar(
                         radius: 16,
                         backgroundColor: member.amountPaid > 0
-                            ? Colors.green[100]
-                            : Colors.grey[200],
+                            ? scheme.primaryContainer
+                            : scheme.surfaceContainerHighest,
                         child: Text(
                           member.userName[0].toUpperCase(),
                           style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
                             color: member.amountPaid > 0
-                                ? Colors.green[900]
-                                : Colors.grey[700],
+                                ? scheme.onPrimaryContainer
+                                : scheme.onSurfaceVariant,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
+                      const SizedBox(width: 16),
                       Expanded(
                         child: Text(
                           member.userName,
@@ -892,8 +1009,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w600,
                           color: member.amountPaid > 0
-                              ? Colors.green[700]
-                              : Colors.grey[600],
+                              ? scheme.primary
+                              : scheme.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -907,24 +1024,20 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value, IconData icon, Color color) {
+  Widget _buildInfoRow(String label, String value, IconData icon) {
+    final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Icon(icon, size: 20, color: color),
+        Icon(icon, size: 20, color: scheme.primary),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(
-            label,
-            style: Theme.of(
-              context,
-            ).textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
-          ),
+          child: Text(label, style: Theme.of(context).textTheme.bodyMedium),
         ),
         Text(
           value,
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: color,
+            fontWeight: FontWeight.w600,
+            color: scheme.primary,
           ),
         ),
       ],
@@ -932,6 +1045,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   }
 
   Widget _buildStatsCard() {
+    final scheme = Theme.of(context).colorScheme;
     final stats = _stats;
     if (stats == null || !stats.hasData) {
       return const SizedBox.shrink();
@@ -943,8 +1057,6 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
     );
 
     return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -952,17 +1064,11 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
           children: [
             Row(
               children: [
-                Icon(
-                  Icons.analytics_outlined,
-                  color: Theme.of(context).colorScheme.primary,
-                  size: 24,
-                ),
-                const SizedBox(width: 12),
+                Icon(Icons.analytics_outlined, color: scheme.primary, size: 24),
+                const SizedBox(width: 16),
                 Text(
                   'Expense Insights',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
               ],
             ),
@@ -971,25 +1077,22 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
               'Expenses Logged',
               '${stats.expenseCount}',
               Icons.receipt_long,
-              Colors.indigo[700]!,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             _buildInfoRow(
               'Average Expense',
               formatCurrency(stats.averageExpense),
               Icons.trending_up,
-              Colors.teal[700]!,
             ),
             if (stats.categoryTotals.isNotEmpty) ...[
               const SizedBox(height: 16),
               const Divider(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               Text(
                 'Category Breakdown',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               ...stats.categoryTotals.entries.map((entry) {
@@ -999,7 +1102,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                     : entry.value / maxCategorySpend;
 
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.only(bottom: 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1008,8 +1111,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                           Expanded(
                             child: Text(
                               label,
-                              style: Theme.of(context).textTheme.bodyMedium
-                                  ?.copyWith(fontWeight: FontWeight.w500),
+                              style: Theme.of(context).textTheme.bodyMedium,
                             ),
                           ),
                           Text(
@@ -1019,13 +1121,13 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                           ),
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
                         child: LinearProgressIndicator(
                           minHeight: 8,
                           value: progress,
-                          backgroundColor: Colors.grey[200],
+                          backgroundColor: scheme.surfaceContainerHighest,
                         ),
                       ),
                     ],
@@ -1036,23 +1138,22 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
             if (stats.memberStats.isNotEmpty) ...[
               const SizedBox(height: 8),
               const Divider(),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               Text(
                 'Member Net Position',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey[700],
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               ...stats.memberStats.map((memberStat) {
                 final net = memberStat.netBalance;
                 final amount = net.abs();
                 final color = net > 0
-                    ? Colors.green[700]!
+                    ? scheme.primary
                     : net < 0
-                    ? Colors.red[700]!
-                    : Colors.grey[700]!;
+                    ? scheme.error
+                    : scheme.onSurfaceVariant;
                 final prefix = net > 0
                     ? '+'
                     : net < 0
@@ -1066,15 +1167,14 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                       Expanded(
                         child: Text(
                           memberStat.userName,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(fontWeight: FontWeight.w500),
+                          style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ),
                       Text(
                         '$prefix${formatCurrency(amount)}',
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: color,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
@@ -1089,27 +1189,27 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   }
 
   Widget _buildSectionHeader(String title, int count) {
+    final scheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        Text(
-          title,
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-        ),
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(width: 8),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: count > 0 ? Colors.orange[100] : Colors.green[100],
+            color: count > 0
+                ? scheme.tertiaryContainer
+                : scheme.surfaceContainerHighest,
             borderRadius: BorderRadius.circular(12),
           ),
           child: Text(
             '$count',
             style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-              color: count > 0 ? Colors.orange[900] : Colors.green[900],
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: count > 0
+                  ? scheme.onTertiaryContainer
+                  : scheme.onSurfaceVariant,
             ),
           ),
         ),
@@ -1118,32 +1218,28 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   }
 
   Widget _buildAllSettledCard() {
+    final scheme = Theme.of(context).colorScheme;
     return Card(
-      elevation: 0,
-      color: Colors.green[50],
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.green[200]!, width: 1),
-      ),
+      color: scheme.primaryContainer,
       child: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           children: [
-            Icon(Icons.celebration, size: 48, color: Colors.green[600]),
-            const SizedBox(height: 12),
+            Icon(Icons.celebration, size: 48, color: scheme.primary),
+            const SizedBox(height: 16),
             Text(
               'All Settled! 🎉',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Colors.green[900],
+                color: scheme.onPrimaryContainer,
               ),
             ),
             const SizedBox(height: 8),
             Text(
               'No pending payments',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: Colors.green[700]),
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: scheme.onPrimaryContainer,
+              ),
             ),
           ],
         ),
@@ -1152,64 +1248,51 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   }
 
   Widget _buildPendingSettlementsList() {
+    final scheme = Theme.of(context).colorScheme;
     return Column(
       children: _pendingSettlements.map((settlement) {
         return Card(
-          elevation: 1,
-          margin: const EdgeInsets.only(bottom: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
+          margin: const EdgeInsets.only(bottom: 16),
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: RichText(
-                        text: TextSpan(
-                          style: Theme.of(context).textTheme.bodyLarge,
-                          children: [
-                            TextSpan(
-                              text: settlement.fromUserName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const TextSpan(text: ' owes '),
-                            TextSpan(
-                              text: settlement.toUserName,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
+                RichText(
+                  text: TextSpan(
+                    style: Theme.of(context).textTheme.bodyLarge,
+                    children: [
+                      TextSpan(
+                        text: settlement.fromUserName,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                    ),
-                  ],
+                      const TextSpan(text: ' owes '),
+                      TextSpan(
+                        text: settlement.toUserName,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
+                        horizontal: 16,
+                        vertical: 8,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.orange[100],
-                        borderRadius: BorderRadius.circular(8),
+                        color: scheme.tertiaryContainer,
+                        borderRadius: BorderRadius.circular(16),
                       ),
                       child: Text(
                         formatCurrency(settlement.amount),
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.orange[900],
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onTertiaryContainer,
                             ),
                       ),
                     ),
@@ -1217,13 +1300,6 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                       onPressed: () => _showMarkAsPaidDialog(settlement),
                       icon: const Icon(Icons.check_circle_outline, size: 18),
                       label: const Text('Mark as Paid'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green[600],
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -1236,6 +1312,7 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
   }
 
   Widget _buildCompletedSettlementsList() {
+    final scheme = Theme.of(context).colorScheme;
     return Column(
       children: _completedSettlements.map((settlement) {
         final date = DateTime.fromMillisecondsSinceEpoch(
@@ -1244,27 +1321,21 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
         final dateStr = '${date.day}/${date.month}/${date.year}';
 
         return Card(
-          elevation: 0,
-          margin: const EdgeInsets.only(bottom: 12),
-          color: Colors.grey[50],
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: Colors.grey[300]!),
-          ),
+          margin: const EdgeInsets.only(bottom: 16),
+          color: scheme.surfaceContainerLow,
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Row(
               children: [
-                Icon(Icons.check_circle, color: Colors.green[600], size: 24),
-                const SizedBox(width: 12),
+                Icon(Icons.check_circle, color: scheme.primary, size: 24),
+                const SizedBox(width: 16),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       RichText(
                         text: TextSpan(
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(color: Colors.grey[600]),
+                          style: Theme.of(context).textTheme.bodyMedium,
                           children: [
                             TextSpan(
                               text: settlement.fromUserName,
@@ -1282,12 +1353,10 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
                       Text(
                         dateStr,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.grey[500],
-                        ),
+                        style: Theme.of(context).textTheme.labelMedium,
                       ),
                     ],
                   ),
@@ -1295,8 +1364,8 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
                 Text(
                   formatCurrency(settlement.amount),
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w600,
+                    color: scheme.onSurfaceVariant,
                   ),
                 ),
               ],
@@ -1319,17 +1388,17 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
               const TextSpan(text: 'Mark payment from '),
               TextSpan(
                 text: settlement.fromUserName,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const TextSpan(text: ' to '),
               TextSpan(
                 text: settlement.toUserName,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const TextSpan(text: ' of '),
               TextSpan(
                 text: formatCurrency(settlement.amount),
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const TextSpan(text: ' as paid?'),
             ],
@@ -1345,10 +1414,6 @@ class _GroupDetailsPageState extends State<GroupDetailsPage> {
               Navigator.of(context).pop();
               _markAsPaid(settlement);
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green[600],
-              foregroundColor: Colors.white,
-            ),
             child: const Text('Confirm'),
           ),
         ],
